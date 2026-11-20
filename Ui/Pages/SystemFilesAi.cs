@@ -2,6 +2,10 @@ using Shapes = System.Windows.Shapes;
 
 namespace TzIsland;
 
+/// <summary>
+/// System Status Page: Real-time telemetry including Battery health, Microphone privacy,
+/// Bluetooth peripherals, Master audio mixing, and DDC/CI Display brightness controls.
+/// </summary>
 public sealed class SystemPage : PageBase
 {
     readonly TextBlock _bat = K.T("", 13, K.Fg, true), _batSub = K.T("", 11, K.Dim), _mic = K.T("", 12), _micSub = K.T("", 11, K.Dim), _btHead = K.T("Bluetooth", 12, K.Fg, true);
@@ -14,32 +18,32 @@ public sealed class SystemPage : PageBase
     public SystemPage()
     {
         var g = K.Cols("1*", "1*");
-        var left = new StackPanel { Margin = new Thickness(0, 0, 12, 0) };
+        var left = new StackPanel { Margin = new Thickness(0, 0, 10, 0) };
 
-        var batRow = K.Cols("30", "*");
-        batRow.Children.Add(K.Glyph("\uEBAA", 20));
+        var batRow = K.Cols("32", "*");
+        batRow.Children.Add(K.Glyph("\uEBAA", 20, K.Green));
         var bs = new StackPanel(); bs.Children.Add(_bat); bs.Children.Add(_batSub);
         batRow.Children.Add(bs.At(col: 1));
-        left.Children.Add(K.CardBox(batRow, 14, new Thickness(10)));
+        left.Children.Add(K.CardBox(batRow, 14, new Thickness(12)));
 
-        var micRow = K.Cols("18", "*");
+        var micRow = K.Cols("20", "*");
         micRow.Children.Add(_micDot);
         var ms = new StackPanel(); ms.Children.Add(_mic); ms.Children.Add(_micSub);
         micRow.Children.Add(ms.At(col: 1));
-        left.Children.Add(K.CardBox(micRow, 14, new Thickness(10)).M(0, 6, 0, 0));
+        left.Children.Add(K.CardBox(micRow, 14, new Thickness(12)).M(0, 6, 0, 0));
 
         var btBox = new StackPanel(); btBox.Children.Add(_btHead); btBox.Children.Add(_bt);
-        left.Children.Add(K.CardBox(btBox, 14, new Thickness(10)).M(0, 6, 0, 0));
+        left.Children.Add(K.CardBox(btBox, 14, new Thickness(12)).M(0, 6, 0, 0));
         g.Children.Add(left);
 
         var right = new StackPanel();
         var vrow = K.Cols("auto", "*");
         _mute = K.IconBtn("\uE767", "Silenciar", () => { Svc.Audio.Muted = !Svc.Audio.Muted; SyncVol(); }, 14, 32, 28);
         vrow.Children.Add(_mute); vrow.Children.Add(_vol.At(col: 1).M(6, 0, 4, 0));
-        var vb = new StackPanel(); vb.Children.Add(K.T("Volume", 12, K.Fg, true).M(0, 0, 0, 2)); vb.Children.Add(vrow);
-        right.Children.Add(K.CardBox(vb, 14, new Thickness(10)));
+        var vb = new StackPanel(); vb.Children.Add(K.T("Volume do Sistema", 12, K.Fg, true).M(0, 0, 0, 2)); vb.Children.Add(vrow);
+        right.Children.Add(K.CardBox(vb, 14, new Thickness(12)));
         right.Children.Add(K.Scroll(_displays).M(0, 6, 0, 0));
-        ((ScrollViewer)right.Children[1]).MaxHeight = 170;
+        ((ScrollViewer)right.Children[1]).MaxHeight = 175;
         g.Children.Add(right.At(col: 1));
         Root.Children.Add(g);
 
@@ -64,8 +68,8 @@ public sealed class SystemPage : PageBase
     void SyncBat()
     {
         var b = Svc.Battery;
-        _bat.Text = b.HasBattery ? $"Bateria {b.Percent}%" : "Sem bateria";
-        _batSub.Text = b.HasBattery ? (b.Charging ? "Carregando / na tomada" : "Usando a bateria") : "Este computador usa energia da tomada";
+        _bat.Text = b.HasBattery ? $"Bateria {b.Percent}%" : "Desktop (sem bateria)";
+        _batSub.Text = b.HasBattery ? (b.Charging ? "Carregando / conectado à rede" : "Operando na bateria") : "Alimentação contínua via tomada";
     }
 
     void SyncVol()
@@ -78,18 +82,18 @@ public sealed class SystemPage : PageBase
     {
         var a = Svc.Audio;
         _micDot.Fill = a.MicInUse ? K.Orange : K.Faint;
-        _mic.Text = a.MicInUse ? "Microfone em uso" : "Microfone livre";
-        _micSub.Text = !Settings.Current.MonitorMicrophone ? "Monitoramento desativado" : a.MicInUse ? string.Join(", ", a.MicApps) : "Nenhum app está gravando";
+        _mic.Text = a.MicInUse ? "Microfone em uso" : "Microfone inativo";
+        _micSub.Text = !Settings.Current.MonitorMicrophone ? "Monitoramento desativado" : a.MicInUse ? string.Join(", ", a.MicApps) : "Nenhum aplicativo gravando áudio";
     }
 
     async Task LoadDevicesAsync()
     {
         await Svc.Bluetooth.RefreshAsync();
-        _btHead.Text = "Bluetooth" + (Svc.Bluetooth.RadioOn == null ? " · indisponível" : Svc.Bluetooth.RadioOn == true ? " · ligado" : " · desligado");
+        _btHead.Text = "Bluetooth" + (Svc.Bluetooth.RadioOn == null ? " · indisponível" : Svc.Bluetooth.RadioOn == true ? " · conectado" : " · desativado");
         _bt.Children.Clear();
-        if (Svc.Bluetooth.Devices.Count == 0) _bt.Children.Add(K.T("Nenhum dispositivo conectado", 11, K.Dim));
+        if (Svc.Bluetooth.Devices.Count == 0) _bt.Children.Add(K.T("Nenhum dispositivo emparelhado", 11, K.Dim).M(0, 4, 0, 0));
         foreach (var d in Svc.Bluetooth.Devices)
-            _bt.Children.Add(K.T($"{d.Name}  {(d.Battery != null ? d.Battery + "%" : "· bateria não informada")}", 11, K.Dim));
+            _bt.Children.Add(K.T($"{d.Name} {(d.Battery != null ? d.Battery + "%" : "· ativo")}", 11, K.Dim).M(0, 2, 0, 0));
 
         if (_displays.Children.Count == 0) await Svc.Brightness.RefreshAsync();
         BuildDisplays();
@@ -101,7 +105,7 @@ public sealed class SystemPage : PageBase
         var devs = Svc.Brightness.Devices;
         if (devs.Count == 0)
         {
-            var t = K.T("Nenhuma tela com controle de brilho por software foi encontrada (monitores externos precisam de DDC/CI habilitado).", 11, K.Faint);
+            var t = K.T("Nenhum monitor com controle de brilho via software DDC/CI encontrado.", 11, K.Faint);
             t.TextWrapping = TextWrapping.Wrap;
             _displays.Children.Add(t);
             return;
@@ -122,7 +126,7 @@ public sealed class SystemPage : PageBase
         DateTime last = DateTime.MinValue;
         s.Changed += v =>
         {
-            if ((DateTime.Now - last).TotalMilliseconds < 90) return;   // DDC/CI é lento: limita a taxa
+            if ((DateTime.Now - last).TotalMilliseconds < 90) return;
             last = DateTime.Now;
             uint val = (uint)(min + v * (max - min));
             Task.Run(() => set(val));
@@ -135,22 +139,28 @@ public sealed class SystemPage : PageBase
     }
 }
 
+/// <summary>
+/// File Tray Page: Quick shelf for drag & drop file stash, download monitoring,
+/// screenshot intake and fast Explorer access.
+/// </summary>
 public sealed class FilesPage : PageBase
 {
     readonly WrapPanel _tiles = new();
     readonly Button _dl, _ss;
-    readonly TextBlock _hint = K.T("Solte arquivos aqui para guardá-los na bandeja", 12, K.Faint);
+    readonly TextBlock _hint = K.T("Arraste e solte arquivos aqui para guardá-los na bandeja", 12, K.Faint);
 
     public FilesPage()
     {
         Root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Root.RowDefinitions.Add(new RowDefinition { Height = K.GL("*") });
+
         var top = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
         _dl = K.TextBtn("Downloads", () => Toggle(true)); _ss = K.TextBtn("Capturas de tela", () => Toggle(false));
         top.Children.Add(_dl); top.Children.Add(_ss.M(6, 0, 0, 0));
         top.Children.Add(K.TextBtn("+ Adicionar arquivo", Pick, true).M(6, 0, 0, 0));
         top.Children.Add(K.TextBtn("Esvaziar", () => Svc.Files.Clear()).M(6, 0, 0, 0));
         Root.Children.Add(top);
+
         var host = new Grid();
         host.Children.Add(K.Scroll(_tiles));
         _hint.HorizontalAlignment = HorizontalAlignment.Center; _hint.VerticalAlignment = VerticalAlignment.Center;
@@ -175,8 +185,8 @@ public sealed class FilesPage : PageBase
     {
         _dl.Background = Settings.Current.WatchDownloads ? K.Blue : K.Card;
         _ss.Background = Settings.Current.WatchScreenshots ? K.Blue : K.Card;
-        _dl.ToolTip = "Monitoramento automático da pasta Downloads: " + (Settings.Current.WatchDownloads ? "ligado" : "desligado");
-        _ss.ToolTip = "Monitoramento automático da pasta de capturas: " + (Settings.Current.WatchScreenshots ? "ligado" : "desligado");
+        _dl.ToolTip = "Monitoramento automático da pasta Downloads: " + (Settings.Current.WatchDownloads ? "ativo" : "inativo");
+        _ss.ToolTip = "Monitoramento automático da pasta de capturas: " + (Settings.Current.WatchScreenshots ? "ativo" : "inativo");
     }
 
     void Pick()
@@ -202,7 +212,7 @@ public sealed class FilesPage : PageBase
 
     UIElement Tile(TrayFile f)
     {
-        var s = new StackPanel { Width = 76 };
+        var s = new StackPanel { Width = 80 };
         UIElement thumb;
         if (ImgExt.Contains(System.IO.Path.GetExtension(f.Path).ToLowerInvariant()) && File.Exists(f.Path))
         {
@@ -215,7 +225,8 @@ public sealed class FilesPage : PageBase
             catch { thumb = K.Glyph("\uE8B9", 22); }
         }
         else thumb = K.Glyph(Directory.Exists(f.Path) ? "\uE8B7" : "\uE8A5", 22, K.Dim);
-        var tb = new Border { Width = 56, Height = 48, CornerRadius = new CornerRadius(10), Background = K.CardStrong, ClipToBounds = true, Child = thumb, HorizontalAlignment = HorizontalAlignment.Center };
+
+        var tb = new Border { Width = 60, Height = 50, CornerRadius = new CornerRadius(10), Background = K.CardStrong, ClipToBounds = true, Child = thumb, HorizontalAlignment = HorizontalAlignment.Center };
         s.Children.Add(tb);
         var name = K.T(f.Name, 10, K.Fg); name.TextAlignment = TextAlignment.Center; name.Margin = new Thickness(0, 3, 0, 0);
         s.Children.Add(name);
@@ -236,7 +247,7 @@ public sealed class FilesPage : PageBase
         };
         var menu = new ContextMenu();
         var open = new MenuItem { Header = "Abrir" }; open.Click += (_, _) => { try { Process.Start(new ProcessStartInfo(f.Path) { UseShellExecute = true }); } catch { } };
-        var show = new MenuItem { Header = "Mostrar na pasta" }; show.Click += (_, _) => Process.Start("explorer.exe", "/select,\"" + f.Path + "\"");
+        var show = new MenuItem { Header = "Mostrar no Explorador" }; show.Click += (_, _) => Process.Start("explorer.exe", "/select,\"" + f.Path + "\"");
         var rem = new MenuItem { Header = "Remover da bandeja (não apaga o arquivo)" }; rem.Click += (_, _) => Svc.Files.Remove(f);
         menu.Items.Add(open); menu.Items.Add(show); menu.Items.Add(rem);
         btn.ContextMenu = menu;
@@ -244,10 +255,14 @@ public sealed class FilesPage : PageBase
     }
 }
 
+/// <summary>
+/// AI Agent Monitor: Real-time telemetry dashboard tracking connected autonomous AI workers,
+/// execution phases, progress indicators, and official quota usage metrics.
+/// </summary>
 public sealed class AiPage : PageBase
 {
     readonly StackPanel _list = new();
-    readonly TextBlock _foot = K.T("Limites de uso só aparecem quando uma fonte oficial os informa (veja o README). Nunca estimamos esses valores.", 10, K.Faint);
+    readonly TextBlock _foot = K.T("Métricas de uso de IA refletem estritamente os dados reportados pela infraestrutura.", 10, K.Faint);
 
     public AiPage()
     {
@@ -263,10 +278,10 @@ public sealed class AiPage : PageBase
 
     static (string text, Brush color) Label(AgentState s) => s switch
     {
-        AgentState.Working => ("Trabalhando", K.Green),
-        AgentState.NeedsInput => ("Precisa de você", K.Orange),
+        AgentState.Working => ("Em execução", K.Green),
+        AgentState.NeedsInput => ("Aguardando você", K.Orange),
         AgentState.Done => ("Concluído", K.Blue),
-        AgentState.Idle => ("Ocioso", K.Dim),
+        AgentState.Idle => ("Disponível", K.Dim),
         AgentState.Unavailable => ("Indisponível", K.Red),
         _ => ("Offline", K.Faint)
     };
@@ -274,11 +289,11 @@ public sealed class AiPage : PageBase
     void Rebuild()
     {
         _list.Children.Clear();
-        if (!Settings.Current.IsOn("ai")) { _list.Children.Add(K.T("Módulo desativado.", 12, K.Dim)); return; }
+        if (!Settings.Current.IsOn("ai")) { _list.Children.Add(K.T("Módulo de Agentes de IA desativado nas Configurações.", 12, K.Dim)); return; }
         foreach (var a in Svc.Agents.Statuses)
         {
             var g = K.Cols("40", "*", "auto");
-            var badge = new Border { Width = 32, Height = 32, CornerRadius = new CornerRadius(16), Background = K.Hex(a.ColorHex), VerticalAlignment = VerticalAlignment.Top };
+            var badge = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(17), Background = K.Hex(a.ColorHex), VerticalAlignment = VerticalAlignment.Top };
             badge.Child = K.T(a.Letter, 14, Brushes.Black, true); ((TextBlock)badge.Child).HorizontalAlignment = HorizontalAlignment.Center; ((TextBlock)badge.Child).VerticalAlignment = VerticalAlignment.Center;
             g.Children.Add(badge);
 
@@ -286,12 +301,22 @@ public sealed class AiPage : PageBase
             var (lbl, col) = Label(a.State);
             var head = new StackPanel { Orientation = Orientation.Horizontal };
             head.Children.Add(K.T(a.Name, 13, K.Fg, true));
-            head.Children.Add(K.T("  " + lbl, 11, col, true).Vc());
+            head.Children.Add(K.T("  ·  " + lbl, 11, col, true).Vc());
             s.Children.Add(head);
             if (a.Message.Length > 0) s.Children.Add(K.T(a.Message, 11, K.Dim));
             if (a.Progress != null)
             {
-                var bar = new ProgressBar { Height = 3, Minimum = 0, Maximum = 100, Value = a.Progress.Value, Foreground = K.Cyan, Background = K.CardStrong, BorderThickness = new Thickness(0), Margin = new Thickness(0, 4, 0, 0) };
+                var bar = new ProgressBar
+                {
+                    Height = 2.5,
+                    Minimum = 0,
+                    Maximum = 100,
+                    Value = a.Progress.Value,
+                    Foreground = new LinearGradientBrush(Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0x5E, 0x5C, 0xE6), 0),
+                    Background = K.CardStrong,
+                    BorderThickness = new Thickness(0),
+                    Margin = new Thickness(0, 4, 0, 0)
+                };
                 s.Children.Add(bar);
             }
             if (a.Note.Length > 0) { var n = K.T(a.Note, 9, K.Faint); n.ToolTip = a.Note; s.Children.Add(n); }
@@ -303,26 +328,32 @@ public sealed class AiPage : PageBase
                 rings.Children.Add(Ring("sessão", a.UsageSession));
                 rings.Children.Add(Ring("semana", a.UsageWeekly));
             }
-            else rings.Children.Add(K.T("limites: sem fonte", 10, K.Faint).Vc());
+            else rings.Children.Add(K.T("limites: sem telemetria", 10, K.Faint).Vc());
             g.Children.Add(rings.At(col: 2));
-            var card = K.CardBox(g, 14, new Thickness(10)); card.Margin = new Thickness(0, 0, 0, 6);
+
+            var card = K.CardBox(g, 14, new Thickness(12));
+            card.Margin = new Thickness(0, 0, 0, 6);
             _list.Children.Add(card);
         }
     }
 
     static UIElement Ring(string cap, double? v)
     {
-        var s = new StackPanel { Margin = new Thickness(4, 0, 0, 0) };
+        var s = new StackPanel { Margin = new Thickness(6, 0, 0, 0) };
         s.Children.Add(new RingGauge { Value = v, Width = 46, Height = 46 });
         var c = K.T(cap, 9, K.Faint); c.HorizontalAlignment = HorizontalAlignment.Center; s.Children.Add(c);
         return s;
     }
 }
 
+/// <summary>
+/// Camera Mirror: Quick private video check with low latency, hardware feed cycling
+/// and automatic sensor liberation upon dismissal.
+/// </summary>
 public sealed class MirrorPage : PageBase
 {
     readonly Image _view = new() { Stretch = Stretch.UniformToFill, RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = new ScaleTransform(-1, 1) };
-    readonly TextBlock _status = K.T("Câmera desligada", 12, K.Dim), _cam = K.T("", 12, K.Fg, true), _err = K.T("", 11, K.Red);
+    readonly TextBlock _status = K.T("Câmera inativa", 12, K.Dim), _cam = K.T("", 12, K.Fg, true), _err = K.T("", 11, K.Red);
     readonly Button _toggle;
     List<(string Id, string Name)> _cams = new();
     int _idx;
@@ -330,22 +361,22 @@ public sealed class MirrorPage : PageBase
 
     public MirrorPage()
     {
-        var g = K.Cols("*", "220");
-        var frame = new Border { CornerRadius = new CornerRadius(16), Background = Brushes.Black, ClipToBounds = true, Child = new Grid { Children = { _view, _status } }, Margin = new Thickness(0, 0, 12, 0) };
+        var g = K.Cols("*", "230");
+        var frame = new Border { CornerRadius = new CornerRadius(16), Background = new SolidColorBrush(Color.FromRgb(10, 10, 14)), ClipToBounds = true, Child = new Grid { Children = { _view, _status } }, Margin = new Thickness(0, 0, 12, 0) };
         _status.HorizontalAlignment = HorizontalAlignment.Center; _status.VerticalAlignment = VerticalAlignment.Center;
         g.Children.Add(frame);
 
         var s = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        s.Children.Add(K.T("Mirror", 16, K.Fg, true));
+        s.Children.Add(K.T("Espelho de Câmera", 16, K.Fg, true));
         var nav = K.Cols("auto", "*", "auto"); nav.Margin = new Thickness(0, 8, 0, 8);
         nav.Children.Add(K.IconBtn("\uE76B", "Câmera anterior", () => Cycle(-1), 12, 28, 28));
         _cam.TextAlignment = TextAlignment.Center; nav.Children.Add(_cam.At(col: 1).Vc());
         nav.Children.Add(K.IconBtn("\uE76C", "Próxima câmera", () => Cycle(1), 12, 28, 28).At(col: 2));
         s.Children.Add(nav);
-        _toggle = K.TextBtn("Ligar espelho", () => _ = ToggleAsync(), true);
+        _toggle = K.TextBtn("Ativar câmera", () => _ = ToggleAsync(), true);
         s.Children.Add(_toggle);
         _err.TextWrapping = TextWrapping.Wrap; s.Children.Add(_err.M(0, 8, 0, 0));
-        var priv = K.T("A câmera só fica ativa enquanto o espelho está ligado. Nada é gravado, salvo ou enviado.", 10, K.Faint);
+        var priv = K.T("A câmera é liberada imediatamente ao sair desta tela. Nenhum dado é salvo.", 10, K.Faint);
         priv.TextWrapping = TextWrapping.Wrap; s.Children.Add(priv.M(0, 10, 0, 0));
         g.Children.Add(s.At(col: 1));
         Root.Children.Add(g);
@@ -364,7 +395,7 @@ public sealed class MirrorPage : PageBase
     public override async void Hidden()
     {
         Svc.Camera.FrameUpdated -= OnFrame; Svc.Camera.StateChanged -= OnState;
-        await Svc.Camera.StopAsync();   // sai da tela => libera a câmera
+        await Svc.Camera.StopAsync();
     }
 
     void OnFrame() => _view.Source = Svc.Camera.Frame;
@@ -372,14 +403,14 @@ public sealed class MirrorPage : PageBase
     void OnState()
     {
         bool on = Svc.Camera.IsOn;
-        _toggle.Content = K.T(on ? "Desligar espelho" : "Ligar espelho", 12, K.Fg, true);
+        _toggle.Content = K.T(on ? "Desativar câmera" : "Ativar câmera", 12, K.Fg, true);
         _toggle.Background = on ? K.Red : K.Blue;
         _status.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
         if (!on) _view.Source = null;
         IslandWindow.Instance?.RefreshMini();
     }
 
-    void SyncCam() { _cam.Text = _cams.Count == 0 ? "Nenhuma câmera encontrada" : _cams[_idx].Name; }
+    void SyncCam() { _cam.Text = _cams.Count == 0 ? "Nenhum dispositivo encontrado" : _cams[_idx].Name; }
 
     async void Cycle(int d)
     {
@@ -397,19 +428,23 @@ public sealed class MirrorPage : PageBase
         {
             _err.Text = "";
             if (Svc.Camera.IsOn) { await Svc.Camera.StopAsync(); return; }
-            if (_cams.Count == 0) { _err.Text = "Nenhuma câmera disponível."; return; }
+            if (_cams.Count == 0) { _err.Text = "Nenhuma câmera detectada."; return; }
             Settings.Current.LastCameraId = _cams[_idx].Id; Settings.Apply();
-            _status.Text = "Abrindo…";
+            _status.Text = "Iniciando feed…";
             var err = await Svc.Camera.StartAsync(_cams[_idx].Id);
-            if (err != null) { _err.Text = err; _status.Text = "Câmera desligada"; }
+            if (err != null) { _err.Text = err; _status.Text = "Câmera inativa"; }
         }
         finally { _busy = false; }
     }
 }
 
+/// <summary>
+/// Voice Dictation Page: Hands-free enterprise speech recognition with live hypotheses,
+/// pulsing audio indicators, and active window injection.
+/// </summary>
 public sealed class DictationPage : PageBase
 {
-    readonly TextBox _text = K.Box("O texto reconhecido aparece aqui…", true);
+    readonly TextBox _text = K.Box("O áudio reconhecido aparecerá aqui em tempo real…", true);
     readonly TextBlock _status = K.T("", 12, K.Dim), _err = K.T("", 11, K.Red);
     readonly Shapes.Ellipse _rec = new() { Width = 10, Height = 10, Fill = K.Red, Opacity = 0, VerticalAlignment = VerticalAlignment.Center };
     readonly Button _mic;
@@ -419,8 +454,9 @@ public sealed class DictationPage : PageBase
         Root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Root.RowDefinitions.Add(new RowDefinition { Height = K.GL("*") });
         Root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
         var top = K.Cols("auto", "auto", "*");
-        _mic = K.IconBtn("\uE720", "Iniciar/parar ditado", () => _ = Svc.Dictation.ToggleAsync(), 20, 48, 40);
+        _mic = K.IconBtn("\uE720", "Iniciar/parar ditado por voz", () => _ = Svc.Dictation.ToggleAsync(), 20, 48, 40);
         top.Children.Add(_mic);
         top.Children.Add(_rec.At(col: 1).M(8, 0, 6, 0));
         var st = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
@@ -428,8 +464,10 @@ public sealed class DictationPage : PageBase
         top.Children.Add(st.At(col: 2));
         top.Margin = new Thickness(0, 0, 0, 8);
         Root.Children.Add(top);
+
         _text.IsReadOnly = true;
         Root.Children.Add(_text.At(row: 1));
+
         var foot = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
         foot.Children.Add(K.TextBtn("Copiar", () => { if (Svc.Dictation.Text.Length > 0) Clipboard.SetText(Svc.Dictation.Text); }));
         foot.Children.Add(K.TextBtn("Colar na janela ativa", () => Svc.Dictation.PasteToActiveWindow(), true).M(6, 0, 0, 0));
@@ -447,11 +485,16 @@ public sealed class DictationPage : PageBase
         var d = Svc.Dictation;
         _text.Text = d.Text + (d.Hypothesis.Length > 0 ? (d.Text.Length > 0 ? " " : "") + d.Hypothesis : "");
         _text.ScrollToEnd();
-        _status.Text = d.Listening ? $"Ouvindo… ({Settings.Current.DictationLanguage})" : $"Pronto · atalho {Settings.Current.DictationHotkey}";
+        _status.Text = d.Listening ? $"Ouvindo… ({Settings.Current.DictationLanguage})" : $"Pronto · Atalho global {Settings.Current.DictationHotkey}";
         _mic.Content = K.Glyph(d.Listening ? "\uE71A" : "\uE720", 20, d.Listening ? K.Red : K.Fg);
         _err.Text = d.Error ?? "";
-        if (d.Listening) _rec.BeginAnimation(UIElement.OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0.15, 1, TimeSpan.FromMilliseconds(700)) { AutoReverse = true, RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever });
-        else { _rec.BeginAnimation(UIElement.OpacityProperty, null); _rec.Opacity = 0; }
+        if (d.Listening)
+            _rec.BeginAnimation(UIElement.OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0.15, 1, TimeSpan.FromMilliseconds(700)) { AutoReverse = true, RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever });
+        else
+        {
+            _rec.BeginAnimation(UIElement.OpacityProperty, null);
+            _rec.Opacity = 0;
+        }
         IslandWindow.Instance?.RefreshMini();
     }
 }

@@ -4,6 +4,10 @@ using Shapes = System.Windows.Shapes;
 
 namespace TzIsland;
 
+/// <summary>
+/// Dynamic Island window: ultra-fluid Apple-inspired floating capsule with spring physics,
+/// glassmorphism, responsive micro-animations, and enterprise-grade modular organization.
+/// </summary>
 public sealed class IslandWindow : Window
 {
     public static IslandWindow? Instance { get; private set; }
@@ -13,39 +17,61 @@ public sealed class IslandWindow : Window
     IntPtr _hwnd;
     HwndSource? _src;
 
-    // árvore visual
+    // Visual tree
     readonly Grid _root = new();
     readonly Border _island = new();
     readonly Grid _layers = new();
     readonly Image _backdrop = new() { Stretch = Stretch.Fill, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };
     readonly Shapes.Rectangle _tint = new(), _sheen = new() { IsHitTestVisible = false };
-    readonly Shapes.Path _outline = new() { IsHitTestVisible = false, StrokeThickness = 1 };
+    readonly Shapes.Path _outline = new() { IsHitTestVisible = false, StrokeThickness = 0.8 };
     readonly Grid _mini = new(), _banner = new(), _exp = new();
     readonly Grid _pageHost = new();
+    readonly Border _navPill = new() { Background = K.Hex("#12FFFFFF"), CornerRadius = new CornerRadius(18), BorderBrush = K.Hex("#18FFFFFF"), BorderThickness = new Thickness(0.5) };
     readonly Grid _navHost = new();
     readonly StackPanel _nav = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-    readonly Border _navDot = new() { Width = 18, Height = 3, CornerRadius = new CornerRadius(2), Background = new LinearGradientBrush(Color.FromArgb(255, 0, 229, 255), Color.FromArgb(255, 0, 122, 255), 0), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom, RenderTransform = new TranslateTransform() };
+    readonly Border _navDot = new()
+    {
+        Width = 20,
+        Height = 3,
+        CornerRadius = new CornerRadius(1.5),
+        Background = new LinearGradientBrush(Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0x5E, 0x5C, 0xE6), 0),
+        HorizontalAlignment = HorizontalAlignment.Left,
+        VerticalAlignment = VerticalAlignment.Bottom,
+        Margin = new Thickness(0, 0, 0, 4),
+        RenderTransform = new TranslateTransform()
+    };
     readonly ScaleTransform _expScale = new(1, 1);
     readonly TranslateTransform _expShift = new();
 
-    // mini
+    // Mini (collapsed pill)
     readonly Image _miniCover = new() { Width = 20, Height = 20, Stretch = Stretch.UniformToFill };
     readonly Border _miniCoverBox = new() { Width = 20, Height = 20, CornerRadius = new CornerRadius(6), ClipToBounds = true, Visibility = Visibility.Collapsed };
-    readonly TextBlock _miniGlyph = K.Glyph("", 13), _miniText = K.T("", 12, K.Fg), _miniRight = K.T("", 11, K.Dim);
-    readonly Shapes.Ellipse _miniDot = new() { Width = 8, Height = 8, Visibility = Visibility.Collapsed };
+    readonly TextBlock _miniGlyph = K.Glyph("", 13, K.Fg), _miniText = K.T("", 12, K.Fg), _miniRight = K.T("", 11, K.Dim);
+    readonly Shapes.Ellipse _miniDot = new() { Width = 7, Height = 7, Visibility = Visibility.Collapsed };
 
-    // banner
-    readonly TextBlock _bTitle = K.T("", 13, K.Fg, true), _bText = K.T("", 12, K.Dim), _bIcon = K.T("", 14, Brushes.Black, true);
-    readonly Border _bBadge = new() { Width = 34, Height = 34, CornerRadius = new CornerRadius(17), Background = K.Fg };
+    // Banner (notification pulse)
+    readonly TextBlock _bTitle = K.T("", 13, K.Fg, true), _bText = K.T("", 12, K.Dim), _bIcon = K.T("", 14, Brushes.White, true);
+    readonly Border _bBadge = new() { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = K.Blue };
 
-    // movimento
+    // Motion & spring dynamics
     readonly MotionLoop _loop;
     readonly Spring _w, _h, _r, _miniO, _bannerO, _expO, _expS, _expY, _pg, _dotX;
 
     readonly Dictionary<string, IPage> _pages = new();
     readonly Dictionary<string, Button> _navBtns = new();
     readonly TextBlock _badge = K.T("", 9, Brushes.White, true);
-    readonly Border _badgeBox = new() { Background = K.Red, CornerRadius = new CornerRadius(7), MinWidth = 14, Height = 14, Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false, Padding = new Thickness(3, 0, 3, 0) };
+    readonly Border _badgeBox = new()
+    {
+        Background = K.Red,
+        CornerRadius = new CornerRadius(8),
+        MinWidth = 16,
+        Height = 16,
+        Visibility = Visibility.Collapsed,
+        HorizontalAlignment = HorizontalAlignment.Right,
+        VerticalAlignment = VerticalAlignment.Top,
+        IsHitTestVisible = false,
+        Padding = new Thickness(3, 0, 3, 0)
+    };
     string? _pageId;
     bool _pageActive;
     FrameworkElement? _incoming, _outgoing;
@@ -53,11 +79,10 @@ public sealed class IslandWindow : Window
     readonly DispatcherTimer _hoverT = new(), _collapseT = new(), _bannerT = new(), _clockT = new() { Interval = TimeSpan.FromSeconds(1) }, _fsT = new() { Interval = TimeSpan.FromSeconds(2) };
     DateTime _activity = DateTime.Now;
     Point _downPos; bool _mouseDown;
-    bool _noExpand, _hotkeysOn;
-    bool _clickExpanded;
+    bool _noExpand;
 
     static AppSettings S => Settings.Current;
-    bool Floating => true; // pílula flutuante, como a Dynamic Island
+    bool Floating => true;
 
     public IslandWindow()
     {
@@ -68,7 +93,7 @@ public sealed class IslandWindow : Window
         UseLayoutRounding = true; SnapsToDevicePixels = true;
 
         _loop = new MotionLoop(Frame);
-        _w = _loop.Add(new Spring(200)); _h = _loop.Add(new Spring(34)); _r = _loop.Add(new Spring(16));
+        _w = _loop.Add(new Spring(200)); _h = _loop.Add(new Spring(34)); _r = _loop.Add(new Spring(17));
         _miniO = _loop.Add(new Spring(1)); _bannerO = _loop.Add(new Spring(0)); _expO = _loop.Add(new Spring(0));
         _expS = _loop.Add(new Spring(0.88)); _expY = _loop.Add(new Spring(10));
         _pg = _loop.Add(new Spring(1)); _dotX = _loop.Add(new Spring(0));
@@ -94,7 +119,7 @@ public sealed class IslandWindow : Window
         _fsT.Start();
     }
 
-    // ---------------- construção ----------------
+    // ---------------- UI construction ----------------
     void BuildTree()
     {
         Content = _root;
@@ -114,7 +139,7 @@ public sealed class IslandWindow : Window
         _layers.Children.Add(_exp);
         _layers.Children.Add(_outline);
 
-        // mini: [capa/ícone] [texto] [direita/ponto]
+        // Mini: [icon/cover] [title/time] [battery/status dot]
         _mini.HorizontalAlignment = HorizontalAlignment.Center; _mini.VerticalAlignment = VerticalAlignment.Top;
         _mini.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _mini.ColumnDefinitions.Add(new ColumnDefinition { Width = K.GL("*") });
@@ -126,40 +151,42 @@ public sealed class IslandWindow : Window
         _miniText.HorizontalAlignment = HorizontalAlignment.Center; _miniText.VerticalAlignment = VerticalAlignment.Center; _miniText.Margin = new Thickness(8, 0, 8, 0);
         _mini.Children.Add(_miniText.At(col: 1));
         var right = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
-        right.Children.Add(_miniDot.M(0, 0, 5, 0)); right.Children.Add(_miniRight);
+        right.Children.Add(_miniDot.M(0, 0, 6, 0)); right.Children.Add(_miniRight);
         _mini.Children.Add(right.At(col: 2));
 
-        // banner
+        // Banner: [glowing badge] [title & text]
         _banner.HorizontalAlignment = HorizontalAlignment.Center; _banner.VerticalAlignment = VerticalAlignment.Top; _banner.Opacity = 0;
         _banner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _banner.ColumnDefinitions.Add(new ColumnDefinition { Width = K.GL("*") });
         _bIcon.HorizontalAlignment = HorizontalAlignment.Center; _bIcon.VerticalAlignment = VerticalAlignment.Center;
-        _bBadge.Child = _bIcon; _bBadge.Margin = new Thickness(18, 0, 0, 0); _bBadge.VerticalAlignment = VerticalAlignment.Center;
+        _bBadge.Child = _bIcon; _bBadge.Margin = new Thickness(16, 0, 0, 0); _bBadge.VerticalAlignment = VerticalAlignment.Center;
         _banner.Children.Add(_bBadge);
         var bs = new StackPanel { Margin = new Thickness(12, 0, 20, 0), VerticalAlignment = VerticalAlignment.Center };
         bs.Children.Add(_bTitle); bs.Children.Add(_bText);
         _banner.Children.Add(bs.At(col: 1));
 
-        // expandido
+        // Expanded: [page host] + [segmented Apple pill navigation bar]
         _exp.HorizontalAlignment = HorizontalAlignment.Center; _exp.VerticalAlignment = VerticalAlignment.Top; _exp.Opacity = 0;
         _exp.RenderTransformOrigin = new Point(0.5, 0);
         _exp.RenderTransform = new TransformGroup { Children = { _expScale, _expShift } };
         _exp.RowDefinitions.Add(new RowDefinition { Height = K.GL("*") });
         _exp.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        _pageHost.Margin = new Thickness(16, 14, 16, 0);
+        _pageHost.Margin = new Thickness(18, 14, 18, 2);
         _exp.Children.Add(_pageHost);
-        _navHost.Margin = new Thickness(16, 4, 16, 8); _navHost.Height = 44;
+
+        _navHost.Margin = new Thickness(18, 2, 18, 10); _navHost.Height = 44;
+        _navHost.Children.Add(_navPill);
         _nav.VerticalAlignment = VerticalAlignment.Center;
         _navHost.Children.Add(_nav);
         _navHost.Children.Add(_navDot);
         _exp.Children.Add(_navHost.At(row: 1));
 
-        // eventos de entrada
+        // Interaction events
         _island.MouseEnter += (_, _) => { _collapseT.Stop(); if (_st == St.Collapsed && S.ExpandOnHover && !_noExpand) { _hoverT.Interval = TimeSpan.FromMilliseconds(S.HoverDelayMs); _hoverT.Start(); } };
         _island.MouseLeave += (_, _) => { _hoverT.Stop(); if (_st == St.Expanded) ArmCollapse(); };
         _island.PreviewMouseMove += (_, _) => _activity = DateTime.Now;
         _island.PreviewMouseDown += OnPreviewDown;
-        _island.MouseLeftButtonDown += (_, e) => { _mouseDown = true; _downPos = e.GetPosition(this); _clickExpanded = false; };
+        _island.MouseLeftButtonDown += (_, e) => { _mouseDown = true; _downPos = e.GetPosition(this); };
         _island.MouseMove += OnIslandMove;
         _island.MouseLeftButtonUp += OnIslandUp;
         _island.DragEnter += (_, e) => { if (_noExpand) return; _collapseT.Stop(); Expand(); ShowPage("files"); e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; };
@@ -178,18 +205,19 @@ public sealed class IslandWindow : Window
         menu.Items.Add(mTog); menu.Items.Add(mCfg); menu.Items.Add(new Separator()); menu.Items.Add(mExit);
         _island.ContextMenu = menu;
 
+        // Futuristic Apple gradient border glow
         _outline.Stroke = new LinearGradientBrush(
             new GradientStopCollection
             {
-                new GradientStop(Color.FromArgb(55, 0, 229, 255), 0),
-                new GradientStop(Color.FromArgb(30, 191, 90, 242), 0.5),
-                new GradientStop(Color.FromArgb(45, 0, 212, 170), 1)
+                new GradientStop(Color.FromArgb(60, 0x0A, 0x84, 0xFF), 0),
+                new GradientStop(Color.FromArgb(35, 0x5E, 0x5C, 0xE6), 0.5),
+                new GradientStop(Color.FromArgb(45, 0x30, 0xD1, 0x58), 1)
             }, 90);
-        _outline.StrokeThickness = 1.2;
+        _outline.StrokeThickness = 0.8;
         _badgeBox.Child = _badge;
     }
 
-    // ---------------- janela / posição ----------------
+    // ---------------- Window / Placement ----------------
     void OnSourceInit(object? sender, EventArgs e)
     {
         _hwnd = new WindowInteropHelper(this).Handle;
@@ -201,8 +229,8 @@ public sealed class IslandWindow : Window
         var m = new Native.MARGINS { L = -1, R = -1, T = -1, B = -1 };
         Native.DwmExtendFrameIntoClientArea(_hwnd, ref m);
         int none = unchecked((int)0xFFFFFFFE), noRound = 1;
-        Native.DwmSetWindowAttribute(_hwnd, 34, ref none, 4);      // sem borda (Win11)
-        Native.DwmSetWindowAttribute(_hwnd, 33, ref noRound, 4);   // sem cantos do sistema (Win11)
+        Native.DwmSetWindowAttribute(_hwnd, 34, ref none, 4);      // No Windows 11 border
+        Native.DwmSetWindowAttribute(_hwnd, 33, ref noRound, 4);   // No Windows 11 system rounding
         _src?.AddHook(WndProc);
         RegisterHotkeys();
     }
@@ -224,7 +252,6 @@ public sealed class IslandWindow : Window
         Native.UnregisterHotKey(_hwnd, 1); Native.UnregisterHotKey(_hwnd, 2);
         if (Native.TryParseHotkey(S.ToggleHotkey, out var m1, out var k1)) Native.RegisterHotKey(_hwnd, 1, m1 | 0x4000, k1);
         if (S.IsOn("dictation") && Native.TryParseHotkey(S.DictationHotkey, out var m2, out var k2)) Native.RegisterHotKey(_hwnd, 2, m2 | 0x4000, k2);
-        _hotkeysOn = true;
     }
 
     protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi) { base.OnDpiChanged(oldDpi, newDpi); Place(); }
@@ -260,7 +287,6 @@ public sealed class IslandWindow : Window
         Settings.Apply();
     }
 
-    /// <summary>Restringe a janela ao retângulo da ilha: o resto fica "vazado" e deixa os cliques passarem.</summary>
     void UpdateRegion()
     {
         if (_hwnd == IntPtr.Zero) return;
@@ -270,7 +296,7 @@ public sealed class IslandWindow : Window
         Native.SetWindowRgn(_hwnd, Native.CreateRectRgn(l, t, r, b), false);
     }
 
-    // ---------------- configurações ----------------
+    // ---------------- Settings synchronization ----------------
     void OnSettingsChanged()
     {
         ApplySettings();
@@ -294,7 +320,6 @@ public sealed class IslandWindow : Window
         ApplyLook();
         BuildNav();
         if (S.Fullscreen != FullscreenMode.Hide) Visibility = Visibility.Visible;
-        _hotkeysOn = false;
     }
 
     void ApplyLook()
@@ -304,23 +329,27 @@ public sealed class IslandWindow : Window
         switch (S.Look)
         {
             case IslandLook.SolidBlack:
-                _tint.Fill = Brushes.Black; _sheen.Visibility = Visibility.Collapsed; break;
+                _tint.Fill = new SolidColorBrush(Color.FromRgb(10, 10, 14));
+                _sheen.Visibility = Visibility.Collapsed;
+                break;
             case IslandLook.DarkGlass:
-                _tint.Fill = new SolidColorBrush(Color.FromArgb((byte)(255 * (0.32 + 0.60 * a)), 8, 10, 20));
-                _sheen.Fill = new LinearGradientBrush(Color.FromArgb(14, 0, 180, 220), Color.FromArgb(0, 0, 0, 0), 90);
-                _sheen.VerticalAlignment = VerticalAlignment.Top; _sheen.Height = 50; _sheen.Visibility = Visibility.Visible; break;
+                _tint.Fill = new SolidColorBrush(Color.FromArgb((byte)(255 * (0.35 + 0.55 * a)), 10, 12, 20));
+                _sheen.Fill = new LinearGradientBrush(Color.FromArgb(16, 0x0A, 0x84, 0xFF), Color.FromArgb(0, 0, 0, 0), 90);
+                _sheen.VerticalAlignment = VerticalAlignment.Top; _sheen.Height = 50; _sheen.Visibility = Visibility.Visible;
+                break;
             default:
                 _tint.Fill = new LinearGradientBrush(
-                    Color.FromArgb((byte)(255 * (0.14 + 0.28 * a)), 30, 40, 60),
-                    Color.FromArgb((byte)(255 * (0.28 + 0.48 * a)), 8, 10, 18), 90);
+                    Color.FromArgb((byte)(255 * (0.18 + 0.30 * a)), 22, 28, 44),
+                    Color.FromArgb((byte)(255 * (0.32 + 0.50 * a)), 8, 10, 18), 90);
                 _sheen.Fill = new LinearGradientBrush(
                     new GradientStopCollection
                     {
-                        new GradientStop(Color.FromArgb(38, 0, 229, 255), 0),
-                        new GradientStop(Color.FromArgb(16, 191, 90, 242), 0.4),
+                        new GradientStop(Color.FromArgb(32, 0x0A, 0x84, 0xFF), 0),
+                        new GradientStop(Color.FromArgb(14, 0x5E, 0x5C, 0xE6), 0.4),
                         new GradientStop(Color.FromArgb(0, 255, 255, 255), 1)
                     }, 90);
-                _sheen.VerticalAlignment = VerticalAlignment.Top; _sheen.Height = 70; _sheen.Visibility = Visibility.Visible; break;
+                _sheen.VerticalAlignment = VerticalAlignment.Top; _sheen.Height = 60; _sheen.Visibility = Visibility.Visible;
+                break;
         }
     }
 
@@ -330,7 +359,7 @@ public sealed class IslandWindow : Window
         foreach (var m in Modules.All.Where(m => S.IsOn(m.Id)))
         {
             var id = m.Id;
-            var b = K.IconBtn(m.Glyph, m.Title, () => ShowPage(id), 16, 42, 32);
+            var b = K.IconBtn(m.Glyph, m.Title, () => ShowPage(id), 15, 38, 30);
             _navBtns[id] = b;
             if (id == "inbox")
             {
@@ -341,8 +370,8 @@ public sealed class IslandWindow : Window
             }
             else _nav.Children.Add(b);
         }
-        _nav.Children.Add(new Border { Width = 1, Height = 18, Background = new SolidColorBrush(Color.FromArgb(40, 0, 229, 255)), Margin = new Thickness(6, 0, 6, 0) });
-        _nav.Children.Add(K.IconBtn("\uE713", "Configurações", OpenSettings, 15, 42, 32));
+        _nav.Children.Add(new Border { Width = 1, Height = 16, Background = new SolidColorBrush(Color.FromArgb(30, 0x0A, 0x84, 0xFF)), Margin = new Thickness(6, 0, 6, 0) });
+        _nav.Children.Add(K.IconBtn("\uE713", "Configurações", OpenSettings, 14, 38, 30));
         if (_pageId == null || !_navBtns.ContainsKey(_pageId)) _pageId = _navBtns.Keys.FirstOrDefault();
         UpdateBadge();
         Dispatcher.InvokeAsync(MoveDot, DispatcherPriority.Loaded);
@@ -357,7 +386,7 @@ public sealed class IslandWindow : Window
 
     void OpenSettings() { var w = SettingsWindow.ShowSingle(); w.Activate(); }
 
-    // ---------------- páginas ----------------
+    // ---------------- Pages ----------------
     IPage? Make(string id) => id switch
     {
         "home" => new HomePage(), "media" => new MediaPage(), "inbox" => new InboxPage(), "productivity" => new ProductivityPage(),
@@ -389,7 +418,7 @@ public sealed class IslandWindow : Window
         {
             _outgoing = prev.View; _incoming = next.View;
             next.View.Opacity = 0;
-            _pg.Snap(0); _pg.To(1, 0, 320, 30);
+            _pg.Snap(0); _pg.To(1, 0, 340, 28);
         }
         else if (prev != null) _pageHost.Children.Remove(prev.View);
         MoveDot();
@@ -413,16 +442,16 @@ public sealed class IslandWindow : Window
         {
             var p = b.TranslatePoint(new Point(b.ActualWidth / 2, 0), _navHost);
             double x = p.X - _navDot.Width / 2;
-            if (S.Animations) _dotX.To(x, 0, 380, 26); else _dotX.Snap(x);
+            if (S.Animations) _dotX.To(x, 0, 400, 26); else _dotX.Snap(x);
             _loop.Kick();
         }
         catch { }
     }
 
-    // ---------------- estados ----------------
+    // ---------------- State transitions ----------------
     (double w, double h, double r) Target(St s) => s switch
     {
-        St.Expanded => (S.ExpandedWidth, S.ExpandedHeight, Floating ? 34 : 30),
+        St.Expanded => (S.ExpandedWidth, S.ExpandedHeight, Floating ? 36 : 30),
         St.Banner => (Math.Max(S.CollapsedWidth + 180, 400), 76, Floating ? 38 : 26),
         _ => (S.CollapsedWidth, S.CollapsedHeight, Floating ? S.CollapsedHeight / 2 : Math.Min(18, S.CollapsedHeight * 0.55))
     };
@@ -447,22 +476,23 @@ public sealed class IslandWindow : Window
                     foreach (var c in _pageHost.Children.OfType<FrameworkElement>().Where(c => c != cur.View).ToList()) _pageHost.Children.Remove(c);
                     if (!_pageHost.Children.Contains(cur.View)) _pageHost.Children.Add(cur.View);
                     _pageActive = true; cur.Shown();
-                    K.FadeIn(cur.View, 90, 8);
+                    K.FadeIn(cur.View, 80, 8);
                 }
             }
             MoveDot();
         }
 
-        double sSt = exp ? 320 : s == St.Banner ? 340 : 420, sDm = exp ? 24 : s == St.Banner ? 22 : 40;
+        double sSt = exp ? 340 : s == St.Banner ? 360 : 440;
+        double sDm = exp ? 26 : s == St.Banner ? 24 : 36;
         double dl = 0;
         if (anim)
         {
             _w.To(w, dl, sSt, sDm); _h.To(h, dl, sSt, sDm); _r.To(r, dl, sSt, sDm);
-            _miniO.To(s == St.Collapsed ? 1 : 0, s == St.Collapsed ? 0.14 : 0, 420, 40);
-            _bannerO.To(s == St.Banner ? 1 : 0, s == St.Banner ? 0.10 : 0, 420, 40);
-            _expO.To(exp ? 1 : 0, exp ? 0.12 : 0, 300, 30);
-            _expS.To(exp ? 1 : 0.88, exp ? 0.04 : 0, 300, 24);
-            _expY.To(exp ? 0 : 10, exp ? 0.06 : 0, 260, 24);
+            _miniO.To(s == St.Collapsed ? 1 : 0, s == St.Collapsed ? 0.12 : 0, 420, 38);
+            _bannerO.To(s == St.Banner ? 1 : 0, s == St.Banner ? 0.10 : 0, 420, 38);
+            _expO.To(exp ? 1 : 0, exp ? 0.10 : 0, 320, 28);
+            _expS.To(exp ? 1 : 0.88, exp ? 0.04 : 0, 320, 24);
+            _expY.To(exp ? 0 : 10, exp ? 0.05 : 0, 280, 24);
         }
         else
         {
@@ -484,8 +514,7 @@ public sealed class IslandWindow : Window
     void Collapse() => SetState(St.Collapsed);
     void Toggle() { if (_st == St.Expanded) Collapse(); else Expand(); }
 
-    // ---------------- quadro de animação ----------------
-    /// <summary>Desfoca o conteúdo enquanto ele entra/sai; em repouso remove o efeito (custo zero).</summary>
+    // ---------------- Animation frame step ----------------
     static void Soft(UIElement e)
     {
         double r = (1 - e.Opacity) * 14;
@@ -513,18 +542,18 @@ public sealed class IslandWindow : Window
         {
             double t = _pg.Value;
             _incoming.Opacity = Math.Clamp(t, 0, 1);
-            ((TranslateTransform)_incoming.RenderTransform).X = (1 - t) * 30;
+            ((TranslateTransform)_incoming.RenderTransform).X = (1 - t) * 26;
             if (_outgoing != null)
             {
-                _outgoing.Opacity = Math.Clamp(1 - t * 1.6, 0, 1);
-                ((TranslateTransform)_outgoing.RenderTransform).X = -t * 30;
+                _outgoing.Opacity = Math.Clamp(1 - t * 1.5, 0, 1);
+                ((TranslateTransform)_outgoing.RenderTransform).X = -t * 26;
             }
             if (_pg.Settled) FinishTransition();
         }
         UpdateRegion();
     }
 
-    // ---------------- vidro (desfoque real do que está atrás) ----------------
+    // ---------------- Real backdrop blur capture ----------------
     void CaptureBackdrop()
     {
         if (S.Look == IslandLook.SolidBlack || S.BlurAmount <= 0 || _hwnd == IntPtr.Zero) return;
@@ -550,7 +579,7 @@ public sealed class IslandWindow : Window
         catch (Exception e) { Log.Write(e); }
     }
 
-    // ---------------- interação ----------------
+    // ---------------- Interaction ----------------
     void OnPreviewDown(object sender, MouseButtonEventArgs e)
     {
         _activity = DateTime.Now;
@@ -563,7 +592,6 @@ public sealed class IslandWindow : Window
         return null;
     }
 
-    /// <summary>A janela normalmente não rouba foco; ao editar texto precisamos de foco de teclado.</summary>
     public void EnableKeyboard()
     {
         int ex = Native.GetWindowLong(_hwnd, Native.GWL_EXSTYLE);
@@ -616,19 +644,19 @@ public sealed class IslandWindow : Window
         Collapse();
     }
 
-    // ---------------- banner de notificação ----------------
+    // ---------------- Banner alert ----------------
     void ShowBanner(InboxItem it)
     {
         _bTitle.Text = it.Title; _bText.Text = it.Text.Length > 0 ? it.Text : it.Source;
         _bIcon.Text = it.Source.Length > 0 ? it.Source[..1].ToUpperInvariant() : "!";
-        _bBadge.Background = it.Important ? K.Orange : K.Fg;
+        _bBadge.Background = it.Important ? K.Orange : K.Blue;
         if (_st == St.Expanded || Visibility != Visibility.Visible) return;
         SetState(St.Banner);
         _bannerT.Interval = TimeSpan.FromSeconds(it.Important ? S.BannerSeconds + 3 : S.BannerSeconds);
         _bannerT.Stop(); _bannerT.Start();
     }
 
-    // ---------------- mini ----------------
+    // ---------------- Mini dynamic capsule ----------------
     public void RefreshMini()
     {
         var m = Svc.Media; var ag = Svc.Agents; var f = Svc.Focus;
@@ -647,7 +675,7 @@ public sealed class IslandWindow : Window
         _miniText.Text = text;
         _miniRight.Text = Svc.Battery.HasBattery ? Svc.Battery.Percent + "%" : "";
 
-        // indicadores de privacidade (como no iOS): laranja = microfone, verde = câmera
+        // Privacy indicator dots (iOS/macOS style: orange = mic, green = camera)
         if (Svc.Camera.IsOn) { _miniDot.Fill = K.Green; _miniDot.Visibility = Visibility.Visible; }
         else if (Svc.Audio.MicInUse && S.MonitorMicrophone) { _miniDot.Fill = K.Orange; _miniDot.Visibility = Visibility.Visible; }
         else _miniDot.Visibility = Visibility.Collapsed;
@@ -655,7 +683,7 @@ public sealed class IslandWindow : Window
 
     static string Trim(string s, int n) => s.Length > n ? s[..n] + "…" : s;
 
-    // ---------------- tela cheia ----------------
+    // ---------------- Fullscreen monitoring ----------------
     void CheckFullscreen()
     {
         bool fs = false;

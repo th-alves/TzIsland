@@ -1,28 +1,53 @@
 namespace TzIsland;
 
+/// <summary>
+/// Productivity Suite: Corporate dashboard featuring Notes, Task Management,
+/// Focus/Pomodoro sessions, Calendar Agenda and Quick Launch Shortcuts.
+/// </summary>
 public sealed class ProductivityPage : PageBase
 {
     readonly Grid _body = new();
-    readonly StackPanel _tabs = new() { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+    readonly Border _tabContainer = new()
+    {
+        Background = K.Hex("#10FFFFFF"),
+        CornerRadius = new CornerRadius(14),
+        Padding = new Thickness(3),
+        HorizontalAlignment = HorizontalAlignment.Left,
+        Margin = new Thickness(0, 0, 0, 10),
+        BorderBrush = K.Hex("#12FFFFFF"),
+        BorderThickness = new Thickness(0.5)
+    };
+    readonly StackPanel _tabs = new() { Orientation = Orientation.Horizontal };
     readonly Dictionary<string, Button> _tabBtn = new();
     string _tab = "notes";
     IPage? _sub;
     bool _shown;
 
     static readonly (string id, string label)[] Tabs =
-    { ("notes", "Notas"), ("tasks", "Tarefas"), ("focus", "Foco"), ("agenda", "Agenda"), ("shortcuts", "Atalhos") };
+    {
+        ("notes", "Notas"),
+        ("tasks", "Tarefas"),
+        ("focus", "Foco"),
+        ("agenda", "Agenda"),
+        ("shortcuts", "Atalhos")
+    };
 
     public ProductivityPage()
     {
         Root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Root.RowDefinitions.Add(new RowDefinition { Height = K.GL("*") });
+
         foreach (var (id, label) in Tabs)
         {
-            var b = K.TextBtn(label, () => Select(id));
-            b.Margin = new Thickness(0, 0, 6, 0);
-            _tabBtn[id] = b; _tabs.Children.Add(b);
+            var b = K.TextBtn(label, () => Select(id), size: 12);
+            b.Padding = new Thickness(14, 5, 14, 5);
+            b.Margin = new Thickness(2, 0, 2, 0);
+            b.Tag = new CornerRadius(11);
+            _tabBtn[id] = b;
+            _tabs.Children.Add(b);
         }
-        Root.Children.Add(_tabs);
+        _tabContainer.Child = _tabs;
+        Root.Children.Add(_tabContainer);
         Root.Children.Add(_body.At(row: 1));
         Select("notes");
     }
@@ -35,18 +60,31 @@ public sealed class ProductivityPage : PageBase
     {
         if (_sub != null) { if (_shown) _sub.Hidden(); _body.Children.Clear(); }
         _tab = id;
-        _sub = id switch { "notes" => new NotesView(), "tasks" => new TasksView(), "focus" => new FocusView(), "agenda" => new AgendaView(), _ => new ShortcutsView() };
+        _sub = id switch
+        {
+            "notes" => new NotesView(),
+            "tasks" => new TasksView(),
+            "focus" => new FocusView(),
+            "agenda" => new AgendaView(),
+            _ => new ShortcutsView()
+        };
         _body.Children.Add(_sub.View);
         K.FadeIn(_sub.View, 0, 6);
         if (_shown) _sub.Shown();
-        foreach (var kv in _tabBtn) kv.Value.Background = kv.Key == id ? K.CardStrong : K.Card;
+
+        foreach (var kv in _tabBtn)
+        {
+            bool active = kv.Key == id;
+            kv.Value.Background = active ? K.CardStrong : K.Clear;
+            kv.Value.Foreground = active ? K.Fg : K.Dim;
+        }
     }
 }
 
 sealed class NotesView : PageBase
 {
     readonly StackPanel _list = new();
-    readonly TextBox _edit = K.Box("Escreva sua nota…", true);
+    readonly TextBox _edit = K.Box("Escreva sua anotação…", true);
     readonly TextBlock _meta = K.T("", 10, K.Faint);
     readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(600) };
     Note? _cur;
@@ -54,11 +92,12 @@ sealed class NotesView : PageBase
 
     public NotesView()
     {
-        var g = K.Cols("170", "*");
+        var g = K.Cols("180", "*");
         var left = K.Rows("auto", "*");
         var add = K.TextBtn("+ Nova nota", () => { var n = Svc.Notes.Add(); Open(n); Refresh(); _edit.Focus(); }, true);
+        add.HorizontalAlignment = HorizontalAlignment.Stretch;
         left.Children.Add(add);
-        left.Children.Add(K.Scroll(_list).At(row: 1).M(0, 6, 8, 0));
+        left.Children.Add(K.Scroll(_list).At(row: 1).M(0, 8, 8, 0));
         g.Children.Add(left);
 
         var right = K.Rows("*", "auto");
@@ -66,7 +105,7 @@ sealed class NotesView : PageBase
         var foot = K.Cols("*", "auto");
         foot.Children.Add(_meta.Vc());
         foot.Children.Add(K.IconBtn("\uE74D", "Excluir nota", Delete, 14, 34, 28, K.Red).At(col: 1));
-        foot.Margin = new Thickness(2, 4, 0, 0);
+        foot.Margin = new Thickness(2, 6, 0, 0);
         right.Children.Add(foot.At(row: 1));
         g.Children.Add(right.At(col: 1));
         Root.Children.Add(g);
@@ -102,10 +141,11 @@ sealed class NotesView : PageBase
         foreach (var n in Svc.Notes.Items)
         {
             var note = n;
-            var btn = K.TextBtn(note.Title.Length > 22 ? note.Title[..22] + "…" : note.Title, () => Open(note));
+            var btn = K.TextBtn(note.Title.Length > 20 ? note.Title[..20] + "…" : note.Title, () => Open(note));
             btn.HorizontalContentAlignment = HorizontalAlignment.Left;
             btn.Background = note == _cur ? K.CardStrong : K.Card;
             btn.Margin = new Thickness(0, 0, 0, 4);
+            btn.Tag = new CornerRadius(9);
             btn.HorizontalAlignment = HorizontalAlignment.Stretch;
             _list.Children.Add(btn);
         }
@@ -116,7 +156,7 @@ sealed class NotesView : PageBase
 sealed class TasksView : PageBase
 {
     readonly StackPanel _list = new();
-    readonly TextBox _input = K.Box("Nova tarefa… (Enter para adicionar)");
+    readonly TextBox _input = K.Box("Nova tarefa corporativa… (Enter para adicionar)");
     readonly TextBlock _count = K.T("", 11, K.Dim);
     int _prio = 1;
     readonly Button _prioBtn;
@@ -131,7 +171,7 @@ sealed class TasksView : PageBase
         top.Children.Add(_input);
         _prioBtn = K.TextBtn("Média", () => { _prio = (_prio + 2) % 3; SyncPrio(); });
         top.Children.Add(_prioBtn.At(col: 1).M(6, 0, 0, 0));
-        top.Children.Add(K.IconBtn("\uE710", "Adicionar", Add, 14, 36, 30).At(col: 2).M(4, 0, 0, 0));
+        top.Children.Add(K.IconBtn("\uE710", "Adicionar tarefa", Add, 14, 36, 30).At(col: 2).M(4, 0, 0, 0));
         top.Children.Add(_count.At(col: 3).Vc().M(10, 0, 4, 0));
         top.Margin = new Thickness(0, 0, 0, 8);
         Root.Children.Add(top);
@@ -155,13 +195,13 @@ sealed class TasksView : PageBase
     {
         _list.Children.Clear();
         _count.Text = $"{Svc.Tasks.Pending} pendentes";
-        if (Svc.Tasks.Items.Count == 0) _list.Children.Add(K.T("Nenhuma tarefa. Adicione a primeira acima.", 12, K.Dim).M(4, 10, 0, 0));
+        if (Svc.Tasks.Items.Count == 0) _list.Children.Add(K.T("Nenhuma tarefa. Adicione sua primeira atividade acima.", 12, K.Dim).M(4, 12, 0, 0));
         foreach (var t in Svc.Tasks.Sorted()) _list.Children.Add(Row(t));
     }
 
     UIElement Row(TaskItem t)
     {
-        var g = K.Cols("30", "*", "auto", "auto");
+        var g = K.Cols("32", "*", "auto", "auto");
         var check = K.IconBtn(t.Done ? "\uE73E" : "\uEA3A", "Concluir", () => { t.Done = !t.Done; Svc.Tasks.Save(); Refresh(); }, 15, 28, 28, t.Done ? K.Green : K.Dim);
         g.Children.Add(check);
         var txt = K.T(t.Text, 13, t.Done ? K.Faint : K.Fg);
@@ -169,10 +209,19 @@ sealed class TasksView : PageBase
         txt.Vc(); txt.Cursor = Cursors.IBeam; txt.ToolTip = "Duplo clique para editar";
         txt.MouseLeftButtonDown += (_, e) => { if (e.ClickCount == 2) { e.Handled = true; Edit(g, t); } };
         g.Children.Add(txt.At(col: 1));
-        var pb = K.IconBtn("\uE91F", "Prioridade: " + PrioName[t.Priority] + " (clique para alterar)", () => { t.Priority = (t.Priority + 2) % 3; Svc.Tasks.Save(); Refresh(); }, 9, 24, 28, PrioColor[t.Priority]);
+        var pb = K.IconBtn("\uE91F", "Prioridade: " + PrioName[t.Priority] + " (clique para alterar)", () => { t.Priority = (t.Priority + 2) % 3; Svc.Tasks.Save(); Refresh(); }, 10, 24, 28, PrioColor[t.Priority]);
         g.Children.Add(pb.At(col: 2));
         g.Children.Add(K.IconBtn("\uE74D", "Excluir", () => { Svc.Tasks.Remove(t); Refresh(); }, 12, 28, 28, K.Dim).At(col: 3));
-        return new Border { Background = K.Card, CornerRadius = new CornerRadius(11), Padding = new Thickness(4, 2, 4, 2), Margin = new Thickness(0, 0, 0, 4), Child = g };
+        return new Border
+        {
+            Background = K.Card,
+            CornerRadius = new CornerRadius(11),
+            BorderBrush = K.Hex("#10FFFFFF"),
+            BorderThickness = new Thickness(0.5),
+            Padding = new Thickness(6, 4, 6, 4),
+            Margin = new Thickness(0, 0, 0, 4),
+            Child = g
+        };
     }
 
     void Edit(Grid row, TaskItem t)
@@ -190,7 +239,7 @@ sealed class TasksView : PageBase
 
 sealed class FocusView : PageBase
 {
-    readonly TextBlock _time = K.T("25:00", 48, K.Fg), _phase = K.T("Foco", 13, K.Dim), _dots = K.T("", 12, K.Dim);
+    readonly TextBlock _time = K.T("25:00", 52, K.Fg), _phase = K.T("Foco", 13, K.Dim), _dots = K.T("", 12, K.Dim);
     readonly Button _startBtn;
     readonly Dictionary<FocusMode, Button> _modes = new();
     readonly StackPanel _timerAdj = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
@@ -203,10 +252,11 @@ sealed class FocusView : PageBase
         {
             var mm = m;
             var b = K.TextBtn(label, () => Svc.Focus.SetMode(mm)); b.Margin = new Thickness(3, 0, 3, 0);
+            b.Tag = new CornerRadius(9);
             _modes[m] = b; modes.Children.Add(b);
         }
         s.Children.Add(modes);
-        _time.HorizontalAlignment = HorizontalAlignment.Center; _time.Margin = new Thickness(0, 6, 0, 0);
+        _time.HorizontalAlignment = HorizontalAlignment.Center; _time.Margin = new Thickness(0, 8, 0, 0);
         _time.FontWeight = FontWeights.Light;
         s.Children.Add(_time);
         _phase.HorizontalAlignment = HorizontalAlignment.Center; s.Children.Add(_phase);
@@ -219,8 +269,8 @@ sealed class FocusView : PageBase
         _timerAdj.Margin = new Thickness(0, 6, 0, 0);
         s.Children.Add(_timerAdj);
 
-        var ctl = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 8, 0, 0) };
-        _startBtn = K.TextBtn("Iniciar", () => Svc.Focus.Toggle(), true); _startBtn.MinWidth = 90;
+        var ctl = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 10, 0, 0) };
+        _startBtn = K.TextBtn("Iniciar", () => Svc.Focus.Toggle(), true); _startBtn.MinWidth = 100;
         ctl.Children.Add(_startBtn);
         ctl.Children.Add(K.IconBtn("\uE72C", "Reiniciar", () => Svc.Focus.Reset(), 14, 38, 32).M(6, 0, 0, 0));
         ctl.Children.Add(K.IconBtn("\uE893", "Pular fase", () => Svc.Focus.SkipPhase(), 14, 38, 32));
@@ -246,7 +296,7 @@ sealed class FocusView : PageBase
 sealed class AgendaView : PageBase
 {
     readonly StackPanel _list = new();
-    readonly TextBox _title = K.Box("Título do evento"), _when = K.Box("dd/MM HH:mm");
+    readonly TextBox _title = K.Box("Título do evento corporativo"), _when = K.Box("dd/MM HH:mm");
 
     public AgendaView()
     {
@@ -271,8 +321,7 @@ sealed class AgendaView : PageBase
         if (string.IsNullOrWhiteSpace(_title.Text)) return;
         if (!DateTime.TryParseExact(_when.Text.Trim(), new[] { "dd/MM HH:mm", "dd/MM/yyyy HH:mm", "HH:mm" }, new CultureInfo("pt-BR"), DateTimeStyles.None, out var d))
         { _when.Text = ""; _when.Tag = "Use dd/MM HH:mm"; return; }
-        if (d.Year == 1) d = DateTime.Today.Add(d.TimeOfDay);   // só hora => hoje
-        else if (d.Year == DateTime.Now.Year || d.Year == 1) { }
+        if (d.Year == 1) d = DateTime.Today.Add(d.TimeOfDay);
         Svc.Calendar.AddLocal(new CalEvent { Title = _title.Text.Trim(), Start = d, End = d.AddHours(1) });
         _title.Text = ""; _when.Text = "";
     }
@@ -283,22 +332,34 @@ sealed class AgendaView : PageBase
         var today = DateTime.Today;
         var events = Svc.Calendar.Between(today, today.AddDays(8));
         if (Svc.Calendar.ExternalCount == 0 && Settings.Current.IcsUrls.Count == 0)
-            _list.Children.Add(K.T("Dica: adicione o link ICS do seu calendário em Configurações > Integrações.", 11, K.Faint).M(4, 0, 0, 6));
-        if (events.Count == 0) _list.Children.Add(K.T("Sem eventos nos próximos 7 dias.", 12, K.Dim).M(4, 6, 0, 0));
+            _list.Children.Add(K.T("Dica: adicione o link ICS do calendário em Configurações > Integrações.", 11, K.Faint).M(4, 0, 0, 6));
+        if (events.Count == 0) _list.Children.Add(K.T("Sem compromissos agendados nos próximos 7 dias.", 12, K.Dim).M(4, 8, 0, 0));
         foreach (var grp in events.GroupBy(e => e.Start.Date))
         {
-            _list.Children.Add(K.T(grp.Key == today ? "HOJE" : grp.Key.ToString("dddd, dd/MM", new CultureInfo("pt-BR")).ToUpperInvariant(), 10, K.Faint, true).M(4, 6, 0, 3));
+            var isToday = grp.Key == today;
+            var headerText = isToday ? "HOJE" : grp.Key.ToString("dddd, dd/MM", new CultureInfo("pt-BR")).ToUpperInvariant();
+            var headerColor = isToday ? K.Blue : K.Faint;
+            _list.Children.Add(K.T(headerText, 10, headerColor, true).M(4, 8, 0, 4));
             foreach (var e in grp)
             {
-                var g = K.Cols("62", "*", "auto");
+                var g = K.Cols("66", "*", "auto");
                 g.Children.Add(K.T(e.AllDay ? "dia todo" : e.Start.ToString("HH:mm"), 12, K.Blue, true).Vc());
                 var s = new StackPanel();
-                s.Children.Add(K.T(e.Title, 13));
+                s.Children.Add(K.T(e.Title, 13, K.Fg, true));
                 if (e.Location.Length > 0) s.Children.Add(K.T(e.Location, 11, K.Dim));
                 g.Children.Add(s.At(col: 1));
                 var ev = e;
                 if (Svc.Calendar.IsLocal(e)) g.Children.Add(K.IconBtn("\uE711", "Remover", () => Svc.Calendar.RemoveLocal(ev), 11, 26, 24, K.Dim).At(col: 2));
-                _list.Children.Add(new Border { Background = K.Card, CornerRadius = new CornerRadius(11), Padding = new Thickness(10, 6, 6, 6), Margin = new Thickness(0, 0, 0, 4), Child = g });
+                _list.Children.Add(new Border
+                {
+                    Background = K.Card,
+                    CornerRadius = new CornerRadius(11),
+                    BorderBrush = K.Hex("#10FFFFFF"),
+                    BorderThickness = new Thickness(0.5),
+                    Padding = new Thickness(10, 7, 8, 7),
+                    Margin = new Thickness(0, 0, 0, 4),
+                    Child = g
+                });
             }
         }
     }
@@ -314,7 +375,7 @@ sealed class ShortcutsView : PageBase
         Root.RowDefinitions.Add(new RowDefinition { Height = K.GL("*") });
         Root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Root.Children.Add(K.Scroll(_tiles));
-        var f = K.Cols("110", "*", "110", "auto");
+        var f = K.Cols("120", "*", "120", "auto");
         f.Children.Add(_name);
         f.Children.Add(_cmd.At(col: 1).M(6, 0, 0, 0));
         f.Children.Add(_args.At(col: 2).M(6, 0, 0, 0));
@@ -347,14 +408,28 @@ sealed class ShortcutsView : PageBase
         foreach (var sc in Settings.Current.Shortcuts.ToList())
         {
             var s = sc;
-            var b = K.TextBtn(s.Name, () => Run(s));
-            b.Width = 138; b.Height = 40; b.Margin = new Thickness(0, 0, 6, 6);
+            var g = K.Cols("24", "*");
+            g.Children.Add(K.Glyph("\uE71B", 13, K.Blue));
+            g.Children.Add(K.T(s.Name, 12, K.Fg, true).Vc().At(col: 1));
+
+            var b = new Button
+            {
+                Style = K.Ghost,
+                Content = g,
+                Width = 142,
+                Height = 40,
+                Margin = new Thickness(0, 0, 6, 6),
+                Background = K.Card,
+                Tag = new CornerRadius(10),
+                Padding = new Thickness(8, 0, 8, 0)
+            };
+            b.Click += (_, _) => Run(s);
             var menu = new ContextMenu();
             var del = new MenuItem { Header = "Remover atalho" };
             del.Click += (_, _) => { Settings.Current.Shortcuts.Remove(s); Settings.Apply(); Refresh(); };
             menu.Items.Add(del);
             b.ContextMenu = menu;
-            b.ToolTip = s.Command + (s.Args.Length > 0 ? " " + s.Args : "") + "  (clique direito para remover)";
+            b.ToolTip = s.Command + (s.Args.Length > 0 ? " " + s.Args : "") + " (clique direito para remover)";
             _tiles.Children.Add(b);
         }
     }

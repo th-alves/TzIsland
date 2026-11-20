@@ -3,11 +3,12 @@ using System.Windows.Media.Animation;
 
 namespace TzIsland;
 
-/// <summary>Helpers de interface: cores, estilos (botões com mola, campos escuros) e construtores curtos.</summary>
+/// <summary>Apple-inspired futuristic design system: refined typography, glassmorphic surfaces, elastic micro-interactions.</summary>
 public static class K
 {
     public static readonly FontFamily Icons = new("Segoe Fluent Icons, Segoe MDL2 Assets");
     public static readonly FontFamily Font = new("Segoe UI Variable Text, Segoe UI");
+    public static readonly FontFamily DisplayFont = new("Segoe UI Variable Display, Segoe UI");
 
     static SolidColorBrush Mk(string hex)
     {
@@ -16,22 +17,24 @@ public static class K
         return b;
     }
 
-    public static readonly Brush Fg = Mk("#F0FFFFFF"), Dim = Mk("#99FFFFFF"), Faint = Mk("#44FFFFFF"),
-        Card = Mk("#14FFFFFF"), CardStrong = Mk("#22FFFFFF"), Blue = Mk("#FF007AFF"), Green = Mk("#FF32D74B"),
+    public static readonly Brush Fg = Mk("#F0F5F5F7"), Dim = Mk("#9986868B"), Faint = Mk("#4448484A"),
+        Card = Mk("#1E1C1C1E"), CardStrong = Mk("#322C2C2E"), Blue = Mk("#FF0A84FF"), Green = Mk("#FF30D158"),
         Red = Mk("#FFFF453A"), Orange = Mk("#FFFF9F0A"), Clear = Brushes.Transparent,
-        Cyan = Mk("#FF00E5FF"), Purple = Mk("#FFBF5AF2"), Neon = Mk("#FF00D4AA");
+        Cyan = Mk("#FF64D2FF"), Purple = Mk("#FFBF5AF2"), Neon = Mk("#FF00D4AA");
+
+    public static readonly Brush Indigo = Mk("#FF5E5CE6"), Mint = Mk("#FF63E6BE"), Rose = Mk("#FFFF6B9D");
 
     public static SolidColorBrush Hex(string hex) => Mk(hex);
 
-    public static LinearGradientBrush Accent => new(Color.FromArgb(255, 0, 229, 255), Color.FromArgb(255, 191, 90, 242), 45);
-    public static LinearGradientBrush GlowBorder => new(Color.FromArgb(60, 0, 229, 255), Color.FromArgb(20, 191, 90, 242), new Point(0, 0), new Point(1, 1));
+    public static LinearGradientBrush Accent => new(Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0x5E, 0x5C, 0xE6), 45);
+    public static LinearGradientBrush GlowBorder => new(Color.FromArgb(60, 0x0A, 0x84, 0xFF), Color.FromArgb(32, 0x5E, 0x5C, 0xE6), new Point(0, 0), new Point(1, 1));
 
     const string Ns = "xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"";
 
     static Style MakeButtonStyle(bool ghost)
     {
         string hover = ghost
-            ? "<Setter TargetName=\"bd\" Property=\"Background\" Value=\"#28FFFFFF\"/>"
+            ? "<Setter TargetName=\"bd\" Property=\"Background\" Value=\"#1AFFFFFF\"/>"
             : "<Setter TargetName=\"bd\" Property=\"Opacity\" Value=\"0.85\"/>";
         string xaml = $$"""
 <Style {{Ns}} TargetType="Button">
@@ -50,12 +53,12 @@ public static class K
           <Trigger Property="IsMouseOver" Value="True">{{hover}}</Trigger>
           <Trigger Property="IsPressed" Value="True">
             <Trigger.EnterActions><BeginStoryboard><Storyboard>
-              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleX" To="0.88" Duration="0:0:0.08"/>
-              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleY" To="0.88" Duration="0:0:0.08"/>
+              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleX" To="0.92" Duration="0:0:0.1"/>
+              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleY" To="0.92" Duration="0:0:0.1"/>
             </Storyboard></BeginStoryboard></Trigger.EnterActions>
             <Trigger.ExitActions><BeginStoryboard><Storyboard>
-              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.4"><DoubleAnimation.EasingFunction><ElasticEase Oscillations="1" Springiness="5" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
-              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.4"><DoubleAnimation.EasingFunction><ElasticEase Oscillations="1" Springiness="5" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.4"><DoubleAnimation.EasingFunction><ElasticEase Oscillations="1" Springiness="8" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
+              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.4"><DoubleAnimation.EasingFunction><ElasticEase Oscillations="1" Springiness="8" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
             </Storyboard></BeginStoryboard></Trigger.ExitActions>
           </Trigger>
         </ControlTemplate.Triggers>
@@ -75,17 +78,17 @@ public static class K
 <Style {{Ns}} TargetType="TextBox">
   <Setter Property="Foreground" Value="White"/>
   <Setter Property="CaretBrush" Value="White"/>
-  <Setter Property="SelectionBrush" Value="#770A84FF"/>
-  <Setter Property="Background" Value="#20FFFFFF"/>
-  <Setter Property="Padding" Value="10,7"/>
+  <Setter Property="SelectionBrush" Value="#550A84FF"/>
+  <Setter Property="Background" Value="#18FFFFFF"/>
+  <Setter Property="Padding" Value="12,8"/>
   <Setter Property="FontSize" Value="12"/>
   <Setter Property="Template">
     <Setter.Value>
       <ControlTemplate TargetType="TextBox">
         <Grid>
-          <Border Background="{TemplateBinding Background}" CornerRadius="10"/>
+          <Border Background="{TemplateBinding Background}" CornerRadius="12"/>
           <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Hidden"/>
-          <TextBlock x:Name="hint" Text="{TemplateBinding Tag}" Foreground="#5CFFFFFF" Margin="{TemplateBinding Padding}" IsHitTestVisible="False" Visibility="Collapsed" FontSize="{TemplateBinding FontSize}" VerticalAlignment="Center"/>
+          <TextBlock x:Name="hint" Text="{TemplateBinding Tag}" Foreground="#4DFFFFFF" Margin="{TemplateBinding Padding}" IsHitTestVisible="False" Visibility="Collapsed" FontSize="{TemplateBinding FontSize}" VerticalAlignment="Center"/>
         </Grid>
         <ControlTemplate.Triggers>
           <Trigger Property="Text" Value=""><Setter TargetName="hint" Property="Visibility" Value="Visible"/></Trigger>
@@ -96,10 +99,10 @@ public static class K
 </Style>
 """);
 
-    // ---------- construtores ----------
+    // ---------- constructors ----------
     public static TextBlock T(string text, double size = 12, Brush? fg = null, bool bold = false) => new()
     {
-        Text = text, FontSize = size, Foreground = fg ?? Fg, FontFamily = Font,
+        Text = text, FontSize = size, Foreground = fg ?? Fg, FontFamily = size >= 20 ? DisplayFont : Font,
         FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal, TextTrimming = TextTrimming.CharacterEllipsis
     };
 
@@ -138,10 +141,10 @@ public static class K
         return t;
     }
 
-    public static Border CardBox(UIElement? child = null, double radius = 20, Thickness? pad = null) => new()
+    public static Border CardBox(UIElement? child = null, double radius = 16, Thickness? pad = null) => new()
     {
-        Background = Card, CornerRadius = new CornerRadius(radius), Padding = pad ?? new Thickness(12), Child = child,
-        BorderBrush = new SolidColorBrush(Color.FromArgb(18, 255, 255, 255)), BorderThickness = new Thickness(1)
+        Background = Mk("#0DFFFFFF"), CornerRadius = new CornerRadius(radius), Padding = pad ?? new Thickness(12), Child = child,
+        BorderBrush = Mk("#12FFFFFF"), BorderThickness = new Thickness(0.5)
     };
 
     public static GridLength GL(string s) =>
@@ -178,22 +181,22 @@ public static class K
 
     public static ScrollViewer Scroll(UIElement content) => SmoothScroll.Create(content);
 
-    public static void FadeIn(UIElement el, int delayMs = 0, double fromY = 8)
+    public static void FadeIn(UIElement el, int delayMs = 0, double fromY = 10)
     {
         el.Opacity = 0;
         var tt = new TranslateTransform(0, fromY);
         el.RenderTransform = tt;
-        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var ease = new QuarticEase { EasingMode = EasingMode.EaseOut };
         var begin = TimeSpan.FromMilliseconds(delayMs);
-        el.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(320)) { BeginTime = begin, EasingFunction = ease });
-        tt.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(fromY, 0, TimeSpan.FromMilliseconds(420)) { BeginTime = begin, EasingFunction = ease });
+        el.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(350)) { BeginTime = begin, EasingFunction = ease });
+        tt.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(fromY, 0, TimeSpan.FromMilliseconds(450)) { BeginTime = begin, EasingFunction = ease });
     }
 
     public static string Fmt(TimeSpan t) => t.TotalHours >= 1 ? $"{(int)t.TotalHours}:{t.Minutes:00}:{t.Seconds:00}" : $"{t.Minutes:00}:{t.Seconds:00}";
     public static string Fmt(double seconds) => Fmt(TimeSpan.FromSeconds(seconds));
 }
 
-/// <summary>Rolagem com inércia suave (a roda do mouse anima o deslocamento em vez de pular).</summary>
+/// <summary>Smooth inertial scrolling — mouse wheel animates offset instead of jumping.</summary>
 public static class SmoothScroll
 {
     public static readonly DependencyProperty OffsetProperty = DependencyProperty.RegisterAttached(
@@ -206,22 +209,22 @@ public static class SmoothScroll
         sv.PreviewMouseWheel += (_, e) =>
         {
             e.Handled = true;
-            double target = Math.Clamp(sv.VerticalOffset - e.Delta * 0.85, 0, sv.ScrollableHeight);
-            sv.BeginAnimation(OffsetProperty, new DoubleAnimation(sv.VerticalOffset, target, TimeSpan.FromMilliseconds(320))
-            { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+            double target = Math.Clamp(sv.VerticalOffset - e.Delta * 1.0, 0, sv.ScrollableHeight);
+            sv.BeginAnimation(OffsetProperty, new DoubleAnimation(sv.VerticalOffset, target, TimeSpan.FromMilliseconds(280))
+            { EasingFunction = new QuarticEase { EasingMode = EasingMode.EaseOut } });
         };
         return sv;
     }
 }
 
-/// <summary>Slider em formato de pílula, estilo iOS. Só dispara Changed quando o usuário arrasta.</summary>
+/// <summary>Pill-shaped slider with gradient fill. Only fires Changed on user drag.</summary>
 public sealed class PillSlider : FrameworkElement
 {
     double _v;
     bool _drag;
     public bool ReadOnly { get; set; }
     public event Action<double>? Changed;
-    public Brush Fill { get; set; } = new LinearGradientBrush(Color.FromArgb(255, 0, 229, 255), Color.FromArgb(255, 0, 122, 255), 0);
+    public Brush Fill { get; set; } = new LinearGradientBrush(Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0x5E, 0x5C, 0xE6), 0);
 
     public PillSlider() { Height = 22; Cursor = Cursors.Hand; }
 
@@ -233,10 +236,10 @@ public sealed class PillSlider : FrameworkElement
 
     protected override void OnRender(DrawingContext dc)
     {
-        double w = ActualWidth, h = 8, y = (ActualHeight - h) / 2;
-        dc.DrawRoundedRectangle(K.CardStrong, null, new Rect(0, y, w, h), 4, 4);
+        double w = ActualWidth, h = 6, y = (ActualHeight - h) / 2;
+        dc.DrawRoundedRectangle(K.CardStrong, null, new Rect(0, y, w, h), 3, 3);
         double fw = Math.Max(h, _v * w);
-        dc.DrawRoundedRectangle(Fill, null, new Rect(0, y, fw, h), 4, 4);
+        dc.DrawRoundedRectangle(Fill, null, new Rect(0, y, fw, h), 3, 3);
     }
 
     void Set(Point p)
@@ -258,7 +261,7 @@ public sealed class PillSlider : FrameworkElement
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e) { if (_drag) { _drag = false; ReleaseMouseCapture(); } e.Handled = true; }
 }
 
-/// <summary>Indicador circular de utilização. Sem valor => anel tracejado e "—" (nunca inventa dado).</summary>
+/// <summary>Circular usage ring gauge. Null value renders dashed track with "—" (never fabricates data).</summary>
 public sealed class RingGauge : FrameworkElement
 {
     double? _v;
@@ -271,7 +274,7 @@ public sealed class RingGauge : FrameworkElement
     {
         double s = Math.Min(ActualWidth, ActualHeight), r = s / 2 - 4;
         var c = new Point(ActualWidth / 2, ActualHeight / 2);
-        var track = new Pen(K.CardStrong, 5);
+        var track = new Pen(K.CardStrong, 4);
         if (_v == null)
         {
             track.DashStyle = new DashStyle(new double[] { 1.2, 1.6 }, 0);
@@ -282,7 +285,7 @@ public sealed class RingGauge : FrameworkElement
             dc.DrawEllipse(null, track, c, r, r);
             double pct = Math.Clamp(_v.Value, 0, 100);
             Brush col = pct >= 95 ? K.Red : pct >= 80 ? K.Orange : K.Cyan;
-            var pen = new Pen(col, 5) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+            var pen = new Pen(col, 4) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
             double ang = pct / 100 * 359.9 - 90;
             var start = new Point(c.X, c.Y - r);
             var end = new Point(c.X + r * Math.Cos(ang * Math.PI / 180), c.Y + r * Math.Sin(ang * Math.PI / 180));
@@ -296,7 +299,7 @@ public sealed class RingGauge : FrameworkElement
         }
         string txt = _v == null ? "—" : $"{_v:0}%";
         var ft = new FormattedText(txt, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
-            new Typeface(K.Font, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), 11, K.Fg, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+            new Typeface(K.Font, FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), 12, K.Fg, VisualTreeHelper.GetDpi(this).PixelsPerDip);
         dc.DrawText(ft, new Point(c.X - ft.Width / 2, c.Y - ft.Height / 2));
     }
 }
