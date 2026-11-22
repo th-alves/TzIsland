@@ -1,4 +1,5 @@
 using System.Windows.Interop;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using Shapes = System.Windows.Shapes;
 
@@ -26,32 +27,65 @@ public sealed class IslandWindow : Window
     readonly Shapes.Path _outline = new() { IsHitTestVisible = false, StrokeThickness = 0.8 };
     readonly Grid _mini = new(), _banner = new(), _exp = new();
     readonly Grid _pageHost = new();
-    readonly Border _navPill = new() { Background = K.Hex("#12FFFFFF"), CornerRadius = new CornerRadius(18), BorderBrush = K.Hex("#18FFFFFF"), BorderThickness = new Thickness(0.5) };
+    readonly Border _navPill = new() { Background = K.Hex("#FF0A0A0C"), BorderBrush = K.Stroke, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17) };
+    const double LensW = 38, LensH = 30;
     readonly Grid _navHost = new();
     readonly StackPanel _nav = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
     readonly Border _navDot = new()
     {
-        Width = 20,
-        Height = 3,
-        CornerRadius = new CornerRadius(1.5),
-        Background = new LinearGradientBrush(Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0x5E, 0x5C, 0xE6), 0),
+        Width = LensW,
+        Height = LensH,
+        CornerRadius = new CornerRadius(9),
+        Background = K.Hex("#FF2B2B2F"),
         HorizontalAlignment = HorizontalAlignment.Left,
-        VerticalAlignment = VerticalAlignment.Bottom,
-        Margin = new Thickness(0, 0, 0, 4),
+        VerticalAlignment = VerticalAlignment.Center,
         RenderTransform = new TranslateTransform()
     };
     readonly ScaleTransform _expScale = new(1, 1);
     readonly TranslateTransform _expShift = new();
 
     // Mini (collapsed pill)
-    readonly Image _miniCover = new() { Width = 20, Height = 20, Stretch = Stretch.UniformToFill };
-    readonly Border _miniCoverBox = new() { Width = 20, Height = 20, CornerRadius = new CornerRadius(6), ClipToBounds = true, Visibility = Visibility.Collapsed };
-    readonly TextBlock _miniGlyph = K.Glyph("", 13, K.Fg), _miniText = K.T("", 12, K.Fg), _miniRight = K.T("", 11, K.Dim);
-    readonly Shapes.Ellipse _miniDot = new() { Width = 7, Height = 7, Visibility = Visibility.Collapsed };
+    // Pílula recolhida: apenas um LED à direita que pulsa (laranja = ocioso, verde = ativo).
+    // O brilho é um gradiente radial (barato); efeitos de sombra reprocessados a cada frame deixavam a animação travada.
+    sealed class Led : Grid
+    {
+        readonly Shapes.Ellipse _glow, _core;
+        readonly ScaleTransform _sc = new(1, 1);
+
+        public Led(Color c)
+        {
+            Width = 26; Height = 26; IsHitTestVisible = false;
+            RenderTransformOrigin = new Point(0.5, 0.5); RenderTransform = _sc;
+            var inner = Color.FromArgb(170, c.R, c.G, c.B); var edge = Color.FromArgb(0, c.R, c.G, c.B);
+            _glow = new Shapes.Ellipse { Width = 26, Height = 26, Fill = new RadialGradientBrush(inner, edge) };
+            _core = new Shapes.Ellipse { Width = 8, Height = 8, Fill = new SolidColorBrush(c) };
+            Children.Add(_glow); Children.Add(_core);
+        }
+
+        public void Pulse(double halfMs)
+        {
+            var sine = new SineEase { EasingMode = EasingMode.EaseInOut };
+            DoubleAnimation A(double from, double to) => new(from, to, TimeSpan.FromMilliseconds(halfMs)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine };
+            _sc.BeginAnimation(ScaleTransform.ScaleXProperty, A(0.78, 1.1));
+            _sc.BeginAnimation(ScaleTransform.ScaleYProperty, A(0.78, 1.1));
+            _glow.BeginAnimation(UIElement.OpacityProperty, A(0.3, 1));
+            _core.BeginAnimation(UIElement.OpacityProperty, A(0.65, 1));
+        }
+    }
+
+    readonly Led _ledIdle = new(Color.FromRgb(0xFF, 0x9F, 0x0A)), _ledActive = new(Color.FromRgb(0x30, 0xD1, 0x58));
+    // Recolhida com mídia tocando: só o ícone (música/vídeo) à esquerda e o espectro de áudio à direita.
+    readonly Grid _miniMedia = new() { Opacity = 0, IsHitTestVisible = false };
+    readonly Border _miniIconHost = new() { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 0, 0) };
+    readonly EqBars _miniEq = new(5) { Fill = Brushes.White, BarWidth = 2.6, Gap = 2.2, Height = 15, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
+    bool? _miniMediaOn; bool _miniVideo;
+    readonly Grid _ledHost = new() { Width = 26, Height = 26, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0), IsHitTestVisible = false };
+    bool? _ledOn;
+    bool _ledPulsing;
 
     // Banner (notification pulse)
     readonly TextBlock _bTitle = K.T("", 13, K.Fg, true), _bText = K.T("", 12, K.Dim), _bIcon = K.T("", 14, Brushes.White, true);
-    readonly Border _bBadge = new() { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = K.Blue };
+    readonly Border _bBadge = new() { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = K.CardStrong };
 
     // Motion & spring dynamics
     readonly MotionLoop _loop;
@@ -59,17 +93,31 @@ public sealed class IslandWindow : Window
 
     readonly Dictionary<string, IPage> _pages = new();
     readonly Dictionary<string, Button> _navBtns = new();
-    readonly TextBlock _badge = K.T("", 9, Brushes.White, true);
+    readonly Dictionary<string, SolidColorBrush> _navBrush = new();
+    readonly Dictionary<string, ScaleTransform> _navScale = new();
+    readonly Dictionary<string, double> _navCenter = new();
+    double _dir = 1;
+    readonly TextBlock _badge = new()
+    {
+        FontFamily = K.Font, FontSize = 9.5, FontWeight = FontWeights.Bold, Foreground = Brushes.White,
+        HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+        TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.None,
+        LineStackingStrategy = LineStackingStrategy.BlockLineHeight, LineHeight = 11
+    };
     readonly Border _badgeBox = new()
     {
         Background = K.Red,
-        CornerRadius = new CornerRadius(8),
-        MinWidth = 16,
-        Height = 16,
+        BorderBrush = Brushes.Black, BorderThickness = new Thickness(1.5),
+        CornerRadius = new CornerRadius(9.5),
+        MinWidth = 19,
+        Height = 19,
         Visibility = Visibility.Collapsed,
         HorizontalAlignment = HorizontalAlignment.Right,
         VerticalAlignment = VerticalAlignment.Top,
+        Margin = new Thickness(0, -1, 3, 0),
         IsHitTestVisible = false,
+        RenderTransformOrigin = new Point(0.5, 0.5),
+        RenderTransform = new ScaleTransform(1, 1),
         Padding = new Thickness(3, 0, 3, 0)
     };
     string? _pageId;
@@ -82,7 +130,7 @@ public sealed class IslandWindow : Window
     bool _noExpand;
 
     static AppSettings S => Settings.Current;
-    bool Floating => true;
+    bool Floating => S.Style == IslandStyle.Floating;
 
     public IslandWindow()
     {
@@ -95,7 +143,7 @@ public sealed class IslandWindow : Window
         _loop = new MotionLoop(Frame);
         _w = _loop.Add(new Spring(200)); _h = _loop.Add(new Spring(34)); _r = _loop.Add(new Spring(17));
         _miniO = _loop.Add(new Spring(1)); _bannerO = _loop.Add(new Spring(0)); _expO = _loop.Add(new Spring(0));
-        _expS = _loop.Add(new Spring(0.88)); _expY = _loop.Add(new Spring(10));
+        _expS = _loop.Add(new Spring(0.94)); _expY = _loop.Add(new Spring(14));
         _pg = _loop.Add(new Spring(1)); _dotX = _loop.Add(new Spring(0));
 
         BuildTree();
@@ -139,20 +187,13 @@ public sealed class IslandWindow : Window
         _layers.Children.Add(_exp);
         _layers.Children.Add(_outline);
 
-        // Mini: [icon/cover] [title/time] [battery/status dot]
+        // Mini: somente o LED, centralizado
         _mini.HorizontalAlignment = HorizontalAlignment.Center; _mini.VerticalAlignment = VerticalAlignment.Top;
-        _mini.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _mini.ColumnDefinitions.Add(new ColumnDefinition { Width = K.GL("*") });
-        _mini.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _miniCoverBox.Child = _miniCover;
-        var left = new Grid { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-        left.Children.Add(_miniGlyph); left.Children.Add(_miniCoverBox);
-        _mini.Children.Add(left);
-        _miniText.HorizontalAlignment = HorizontalAlignment.Center; _miniText.VerticalAlignment = VerticalAlignment.Center; _miniText.Margin = new Thickness(8, 0, 8, 0);
-        _mini.Children.Add(_miniText.At(col: 1));
-        var right = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center };
-        right.Children.Add(_miniDot.M(0, 0, 6, 0)); right.Children.Add(_miniRight);
-        _mini.Children.Add(right.At(col: 2));
+        _ledActive.Opacity = 0;
+        _ledHost.Children.Add(_ledIdle); _ledHost.Children.Add(_ledActive);
+        _mini.Children.Add(_ledHost);
+        _miniMedia.Children.Add(_miniIconHost); _miniMedia.Children.Add(_miniEq);
+        _mini.Children.Add(_miniMedia);
 
         // Banner: [glowing badge] [title & text]
         _banner.HorizontalAlignment = HorizontalAlignment.Center; _banner.VerticalAlignment = VerticalAlignment.Top; _banner.Opacity = 0;
@@ -174,11 +215,11 @@ public sealed class IslandWindow : Window
         _pageHost.Margin = new Thickness(18, 14, 18, 2);
         _exp.Children.Add(_pageHost);
 
-        _navHost.Margin = new Thickness(18, 2, 18, 10); _navHost.Height = 44;
+        _navHost.Margin = new Thickness(18, 2, 18, 10); _navHost.Height = 46;
         _navHost.Children.Add(_navPill);
+        _navHost.Children.Add(_navDot);      // a "lente" fica atrás dos ícones
         _nav.VerticalAlignment = VerticalAlignment.Center;
         _navHost.Children.Add(_nav);
-        _navHost.Children.Add(_navDot);
         _exp.Children.Add(_navHost.At(row: 1));
 
         // Interaction events
@@ -209,9 +250,9 @@ public sealed class IslandWindow : Window
         _outline.Stroke = new LinearGradientBrush(
             new GradientStopCollection
             {
-                new GradientStop(Color.FromArgb(60, 0x0A, 0x84, 0xFF), 0),
-                new GradientStop(Color.FromArgb(35, 0x5E, 0x5C, 0xE6), 0.5),
-                new GradientStop(Color.FromArgb(45, 0x30, 0xD1, 0x58), 1)
+                new GradientStop(Color.FromArgb(48, 255, 255, 255), 0),
+                new GradientStop(Color.FromArgb(10, 255, 255, 255), 0.55),
+                new GradientStop(Color.FromArgb(26, 255, 255, 255), 1)
             }, 90);
         _outline.StrokeThickness = 0.8;
         _badgeBox.Child = _badge;
@@ -287,12 +328,16 @@ public sealed class IslandWindow : Window
         Settings.Apply();
     }
 
+    int _rgnL = -1, _rgnT = -1, _rgnR = -1, _rgnB = -1;
+
     void UpdateRegion()
     {
         if (_hwnd == IntPtr.Zero) return;
         double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
         double w = _w.Value, h = _h.Value, left = (Width - w) / 2, top = _island.Margin.Top;
         int l = (int)Math.Floor(left * dpi), t = (int)Math.Floor(top * dpi), r = (int)Math.Ceiling((left + w) * dpi), b = (int)Math.Ceiling((top + h) * dpi);
+        if (l == _rgnL && t == _rgnT && r == _rgnR && b == _rgnB) return;   // nada mudou: evita recriar a região a cada frame
+        _rgnL = l; _rgnT = t; _rgnR = r; _rgnB = b;
         Native.SetWindowRgn(_hwnd, Native.CreateRectRgn(l, t, r, b), false);
     }
 
@@ -309,8 +354,8 @@ public sealed class IslandWindow : Window
     void ApplySettings()
     {
         double bannerW = Math.Max(S.CollapsedWidth + 180, 400), bannerH = 76;
-        Width = Math.Max(S.ExpandedWidth, bannerW) + 48;
-        Height = Math.Max(S.ExpandedHeight, bannerH) + 12 + 40;
+        Width = Math.Max(S.ExpandedWidth, bannerW) + 120;
+        Height = Math.Max(S.ExpandedHeight, bannerH) + 12 + 76;
         _island.Margin = new Thickness(0, Floating ? 10 : 0, 0, 0);
         _exp.Width = S.ExpandedWidth; _exp.Height = S.ExpandedHeight;
         _mini.Width = S.CollapsedWidth; _mini.Height = S.CollapsedHeight;
@@ -329,23 +374,23 @@ public sealed class IslandWindow : Window
         switch (S.Look)
         {
             case IslandLook.SolidBlack:
-                _tint.Fill = new SolidColorBrush(Color.FromRgb(10, 10, 14));
+                _tint.Fill = new SolidColorBrush(Color.FromRgb(0, 0, 0));
                 _sheen.Visibility = Visibility.Collapsed;
                 break;
             case IslandLook.DarkGlass:
-                _tint.Fill = new SolidColorBrush(Color.FromArgb((byte)(255 * (0.35 + 0.55 * a)), 10, 12, 20));
-                _sheen.Fill = new LinearGradientBrush(Color.FromArgb(16, 0x0A, 0x84, 0xFF), Color.FromArgb(0, 0, 0, 0), 90);
+                _tint.Fill = new SolidColorBrush(Color.FromArgb((byte)(255 * (0.35 + 0.55 * a)), 8, 8, 9));
+                _sheen.Fill = new LinearGradientBrush(Color.FromArgb(18, 255, 255, 255), Color.FromArgb(0, 0, 0, 0), 90);
                 _sheen.VerticalAlignment = VerticalAlignment.Top; _sheen.Height = 50; _sheen.Visibility = Visibility.Visible;
                 break;
             default:
                 _tint.Fill = new LinearGradientBrush(
-                    Color.FromArgb((byte)(255 * (0.18 + 0.30 * a)), 22, 28, 44),
-                    Color.FromArgb((byte)(255 * (0.32 + 0.50 * a)), 8, 10, 18), 90);
+                    Color.FromArgb((byte)(255 * (0.18 + 0.30 * a)), 22, 22, 24),
+                    Color.FromArgb((byte)(255 * (0.32 + 0.50 * a)), 6, 6, 7), 90);
                 _sheen.Fill = new LinearGradientBrush(
                     new GradientStopCollection
                     {
-                        new GradientStop(Color.FromArgb(32, 0x0A, 0x84, 0xFF), 0),
-                        new GradientStop(Color.FromArgb(14, 0x5E, 0x5C, 0xE6), 0.4),
+                        new GradientStop(Color.FromArgb(26, 255, 255, 255), 0),
+                        new GradientStop(Color.FromArgb(10, 255, 255, 255), 0.4),
                         new GradientStop(Color.FromArgb(0, 255, 255, 255), 1)
                     }, 90);
                 _sheen.VerticalAlignment = VerticalAlignment.Top; _sheen.Height = 60; _sheen.Visibility = Visibility.Visible;
@@ -355,23 +400,28 @@ public sealed class IslandWindow : Window
 
     void BuildNav()
     {
-        _nav.Children.Clear(); _navBtns.Clear();
+        _nav.Children.Clear(); _navBtns.Clear(); _navBrush.Clear(); _navScale.Clear(); _navCenter.Clear();
         foreach (var m in Modules.All.Where(m => S.IsOn(m.Id)))
         {
             var id = m.Id;
-            var b = K.IconBtn(m.Glyph, m.Title, () => ShowPage(id), 15, 38, 30);
+            var b = K.IconBtn(m.Glyph, m.Title, () => ShowPage(id), 15, 44, 32);
+            var ink = new SolidColorBrush(((SolidColorBrush)K.Label).Color);
+            var sc = new ScaleTransform(1, 1);
+            if (id == "ai") { var sp = Brand.Sparkle(17, ink); sp.Fill = ink; b.Content = sp; }   // faísca de IA no lugar do texto "AI"
+            else if (b.Content is TextBlock tb) tb.Foreground = ink;
+            if (b.Content is FrameworkElement ce) { ce.RenderTransformOrigin = new Point(0.5, 0.5); ce.RenderTransform = sc; }
+            _navBrush[id] = ink; _navScale[id] = sc;
             _navBtns[id] = b;
             if (id == "inbox")
             {
                 (_badgeBox.Parent as Panel)?.Children.Remove(_badgeBox);
                 var host = new Grid(); host.Children.Add(b); host.Children.Add(_badgeBox);
-                _badgeBox.Margin = new Thickness(0, 0, 0, 0);
                 _nav.Children.Add(host);
             }
             else _nav.Children.Add(b);
         }
-        _nav.Children.Add(new Border { Width = 1, Height = 16, Background = new SolidColorBrush(Color.FromArgb(30, 0x0A, 0x84, 0xFF)), Margin = new Thickness(6, 0, 6, 0) });
-        _nav.Children.Add(K.IconBtn("\uE713", "Configurações", OpenSettings, 14, 38, 30));
+        _nav.Children.Add(new Border { Width = 1, Height = 16, Background = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)), Margin = new Thickness(6, 0, 6, 0) });
+        _nav.Children.Add(K.IconBtn("\uE713", "Configurações", OpenSettings, 14, 44, 32, K.Label));
         if (_pageId == null || !_navBtns.ContainsKey(_pageId)) _pageId = _navBtns.Keys.FirstOrDefault();
         UpdateBadge();
         Dispatcher.InvokeAsync(MoveDot, DispatcherPriority.Loaded);
@@ -380,8 +430,17 @@ public sealed class IslandWindow : Window
     void UpdateBadge()
     {
         int n = Hub.Inbox.Count;
-        _badge.Text = n > 99 ? "99+" : n.ToString();
+        string txt = n > 99 ? "99+" : n.ToString();
+        bool changed = _badge.Text != txt;
+        _badge.Text = txt;
         _badgeBox.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (changed && n > 0 && S.Animations)
+        {
+            var pop = new DoubleAnimation(1.45, 1, TimeSpan.FromMilliseconds(420)) { EasingFunction = new BackEase { Amplitude = 0.9, EasingMode = EasingMode.EaseOut } };
+            var sc = (ScaleTransform)_badgeBox.RenderTransform;
+            sc.BeginAnimation(ScaleTransform.ScaleXProperty, pop);
+            sc.BeginAnimation(ScaleTransform.ScaleYProperty, pop.Clone());
+        }
     }
 
     void OpenSettings() { var w = SettingsWindow.ShowSingle(); w.Activate(); }
@@ -389,7 +448,7 @@ public sealed class IslandWindow : Window
     // ---------------- Pages ----------------
     IPage? Make(string id) => id switch
     {
-        "home" => new HomePage(), "media" => new MediaPage(), "inbox" => new InboxPage(), "productivity" => new ProductivityPage(),
+        "home" => new HomePage(), "media" => new MediaPage(), "focus" => new FocusPage(), "ambience" => new AmbiencePage(), "inbox" => new InboxPage(), "productivity" => new ProductivityPage(),
         "system" => new SystemPage(), "files" => new FilesPage(), "ai" => new AiPage(), "mirror" => new MirrorPage(), "dictation" => new DictationPage(),
         _ => null
     };
@@ -404,21 +463,34 @@ public sealed class IslandWindow : Window
         return np;
     }
 
+    void RevealNav()
+    {
+        int i = 0;
+        foreach (var el in _nav.Children.OfType<FrameworkElement>()) Motion.Reveal(el, 0.12 + (i++) * 0.03, 14, 0.55);
+    }
+
     public void ShowPage(string id, bool animate = true)
     {
         if (!S.IsOn(id) || GetPage(id) is not IPage next) return;
         if (_pageId == id && _pageHost.Children.Contains(next.View)) { MoveDot(); return; }
         FinishTransition();
+        next.View.BeginAnimation(UIElement.OpacityProperty, null);
+        next.View.Visibility = Visibility.Visible;
         IPage? prev = _pageId != null && _pages.TryGetValue(_pageId, out var pp) && _pageHost.Children.Contains(pp.View) ? pp : null;
         if (prev != null && _pageActive) prev.Hidden();
+        var order = _navBtns.Keys.ToList();
+        _dir = prev != null && order.IndexOf(id) < order.IndexOf(_pageId ?? id) ? -1 : 1;
         _pageId = id;
         _pageHost.Children.Add(next.View);
         if (_pageActive) next.Shown();
         if (prev != null && animate && S.Animations)
         {
             _outgoing = prev.View; _incoming = next.View;
+            prev.View.BeginAnimation(UIElement.OpacityProperty, null);   // garante que a página que sai realmente possa sumir
+            prev.View.Opacity = 1;
             next.View.Opacity = 0;
-            _pg.Snap(0); _pg.To(1, 0, 340, 28);
+            _pg.Snap(0); _pg.To(1, 0, 300, 19);
+            Motion.RevealPage(next, 0.16, 0.05);
         }
         else if (prev != null) _pageHost.Children.Remove(prev.View);
         MoveDot();
@@ -428,7 +500,7 @@ public sealed class IslandWindow : Window
     void FinishTransition()
     {
         if (_incoming != null) { _incoming.Opacity = 1; ((TranslateTransform)_incoming.RenderTransform).X = 0; }
-        if (_outgoing != null) { _pageHost.Children.Remove(_outgoing); _outgoing.Opacity = 1; ((TranslateTransform)_outgoing.RenderTransform).X = 0; }
+        if (_outgoing != null) { _pageHost.Children.Remove(_outgoing); _outgoing.Visibility = Visibility.Visible; _outgoing.Opacity = 1; ((TranslateTransform)_outgoing.RenderTransform).X = 0; }
         _incoming = _outgoing = null;
     }
 
@@ -441,19 +513,24 @@ public sealed class IslandWindow : Window
         try
         {
             var p = b.TranslatePoint(new Point(b.ActualWidth / 2, 0), _navHost);
-            double x = p.X - _navDot.Width / 2;
-            if (S.Animations) _dotX.To(x, 0, 400, 26); else _dotX.Snap(x);
+            double x = p.X - LensW / 2;
+            foreach (var kv in _navBtns)
+                _navCenter[kv.Key] = kv.Value.TranslatePoint(new Point(kv.Value.ActualWidth / 2, 0), _navHost).X;
+            // mola um pouco mais macia (menos "borracha"): chega rápido, passa de leve e assenta
+            if (S.Animations) _dotX.To(x, 0, 380, 21); else _dotX.Snap(x);
             _loop.Kick();
         }
         catch { }
     }
 
     // ---------------- State transitions ----------------
+    double CollapsedWidthNow => S.CollapsedWidth;
+
     (double w, double h, double r) Target(St s) => s switch
     {
-        St.Expanded => (S.ExpandedWidth, S.ExpandedHeight, Floating ? 36 : 30),
+        St.Expanded => (S.ExpandedWidth, S.ExpandedHeight, Floating ? 36 : 28),
         St.Banner => (Math.Max(S.CollapsedWidth + 180, 400), 76, Floating ? 38 : 26),
-        _ => (S.CollapsedWidth, S.CollapsedHeight, Floating ? S.CollapsedHeight / 2 : Math.Min(18, S.CollapsedHeight * 0.55))
+        _ => (CollapsedWidthNow, S.CollapsedHeight, Floating ? S.CollapsedHeight / 2 : Math.Min(20, S.CollapsedHeight * 0.55))
     };
 
     void SetState(St s, bool snap = false)
@@ -461,7 +538,10 @@ public sealed class IslandWindow : Window
         if (_st == s && !snap) return;
         var prev = _st; _st = s;
         var (w, h, r) = Target(s);
-        bool exp = s == St.Expanded, anim = S.Animations && !snap;
+        bool exp = s == St.Expanded;
+        bool instantOut = s == St.Collapsed && prev == St.Expanded && S.CollapseSpeed == CollapseMode.Instant;
+        bool fastOut = !exp && S.CollapseSpeed == CollapseMode.Fast;
+        bool anim = S.Animations && !snap && !instantOut;
 
         if (exp && prev != St.Expanded) CaptureBackdrop();
         if (!exp && prev == St.Expanded && _pageActive) { _pageActive = false; CurrentPage()?.Hidden(); }
@@ -476,29 +556,43 @@ public sealed class IslandWindow : Window
                     foreach (var c in _pageHost.Children.OfType<FrameworkElement>().Where(c => c != cur.View).ToList()) _pageHost.Children.Remove(c);
                     if (!_pageHost.Children.Contains(cur.View)) _pageHost.Children.Add(cur.View);
                     _pageActive = true; cur.Shown();
-                    K.FadeIn(cur.View, 80, 8);
+                    cur.View.BeginAnimation(UIElement.OpacityProperty, null); cur.View.Opacity = 1;
+                    if (anim) { Motion.RevealPage(cur, 0.10, 0.055); RevealNav(); }
                 }
             }
             MoveDot();
         }
+        _miniEq.Running = _miniMediaOn == true && s == St.Collapsed;
 
-        double sSt = exp ? 340 : s == St.Banner ? 360 : 440;
-        double sDm = exp ? 26 : s == St.Banner ? 24 : 36;
-        double dl = 0;
         if (anim)
         {
-            _w.To(w, dl, sSt, sDm); _h.To(h, dl, sSt, sDm); _r.To(r, dl, sSt, sDm);
-            _miniO.To(s == St.Collapsed ? 1 : 0, s == St.Collapsed ? 0.12 : 0, 420, 38);
-            _bannerO.To(s == St.Banner ? 1 : 0, s == St.Banner ? 0.10 : 0, 420, 38);
-            _expO.To(exp ? 1 : 0, exp ? 0.10 : 0, 320, 28);
-            _expS.To(exp ? 1 : 0.88, exp ? 0.04 : 0, 320, 24);
-            _expY.To(exp ? 0 : 10, exp ? 0.05 : 0, 280, 24);
+            if (exp)
+            {
+                // Expandir: a forma "se abre" com larguras e alturas em molas diferentes (efeito de morph);
+                // o conteúdo entra um instante depois, com escala + subida, e os cartões chegam em cascata.
+                _w.To(w, 0, 320, 24); _h.To(h, 0, 250, 25); _r.To(r, 0, 260, 26);
+                _expO.To(1, 0.07, 360, 36); _expS.To(1, 0.03, 240, 17); _expY.To(0, 0.03, 240, 20);
+                _miniO.To(0, 0, 420, 38); _bannerO.To(0, 0, 420, 38);
+            }
+            else
+            {
+                // Recolher: o conteúdo some primeiro (rápido) e só então a forma encolhe — nada fica espremido.
+                bool banner = s == St.Banner;
+                double k = banner ? 360 : fastOut ? 800 : 340, c = banner ? 24 : fastOut ? 50 : 30;
+                double shapeDelay = (s == St.Collapsed && !fastOut) ? 0.05 : 0;
+                _w.To(w, shapeDelay, k, c); _h.To(h, shapeDelay, k, c); _r.To(r, shapeDelay, k, c);
+                _expO.To(0, 0, fastOut ? 900 : 700, fastOut ? 60 : 52);
+                _expS.To(0.96, 0, fastOut ? 600 : 420, fastOut ? 44 : 34);
+                _expY.To(8, 0, 420, 34);
+                _miniO.To(s == St.Collapsed ? 1 : 0, s == St.Collapsed ? (fastOut ? 0.02 : 0.12) : 0, 420, 38);
+                _bannerO.To(s == St.Banner ? 1 : 0, s == St.Banner ? 0.10 : 0, 420, 38);
+            }
         }
         else
         {
             _w.Snap(w); _h.Snap(h); _r.Snap(r);
             _miniO.Snap(s == St.Collapsed ? 1 : 0); _bannerO.Snap(s == St.Banner ? 1 : 0); _expO.Snap(exp ? 1 : 0);
-            _expS.Snap(exp ? 1 : 0.88); _expY.Snap(exp ? 0 : 10);
+            _expS.Snap(exp ? 1 : 0.94); _expY.Snap(exp ? 0 : 14);
         }
         _exp.IsHitTestVisible = exp;
         _mini.IsHitTestVisible = s == St.Collapsed;
@@ -526,27 +620,55 @@ public sealed class IslandWindow : Window
     void Frame()
     {
         double w = _w.Value, h = _h.Value;
-        double rb = Math.Clamp(_r.Value, 0, Math.Min(w, h) / 2), rt = Floating ? rb : 0;
+        double rb = Math.Clamp(_r.Value, 0, Math.Min(w, h) / 2);
         _island.Width = Math.Max(1, w); _island.Height = Math.Max(1, h);
-        var g = Geo.Round(w, h, rt, rb);
-        _island.Clip = g; _outline.Data = g;
+        if (Floating)
+        {
+            var g = Geo.Round(w, h, rb, rb);
+            _island.Clip = g; _outline.Data = g;
+        }
+        else
+        {
+            // Clássico: topo reto colado na borda da tela, ombros côncavos e base arredondada (silhueta de notch).
+            double ear = Math.Min(11, Math.Max(0, h * 0.3));
+            var (fill, line) = NotchGeo.Make(w, h, ear, rb);
+            _island.Clip = fill; _outline.Data = line;
+        }
         _mini.Opacity = Math.Clamp(_miniO.Value, 0, 1);
         _banner.Opacity = Math.Clamp(_bannerO.Value, 0, 1);
         _exp.Opacity = Math.Clamp(_expO.Value, 0, 1);
-        Soft(_mini); Soft(_banner); Soft(_exp);
+        Soft(_mini); Soft(_banner);                      // só nos elementos pequenos; blur no painel grande engasgava a animação
+        if (_exp.Effect != null) _exp.Effect = null;
         _expScale.ScaleX = _expScale.ScaleY = _expS.Value;
         _expShift.Y = _expY.Value;
-        ((TranslateTransform)_navDot.RenderTransform).X = _dotX.Value;
+        double stretch = Math.Min(Math.Abs(_dotX.Velocity) * 0.016, 18);   // squash & stretch da lente
+        _navDot.Width = LensW + stretch;
+        _navDot.Height = LensH - Math.Min(stretch * 0.2, 4);
+        ((TranslateTransform)_navDot.RenderTransform).X = _dotX.Value - stretch / 2;
+        // Cada ícone acende e cresce conforme a lente passa por ele (tudo sincronizado com o movimento da lente).
+        double lensC = _dotX.Value + LensW / 2;
+        var off = ((SolidColorBrush)K.Label).Color; var on = ((SolidColorBrush)K.White).Color;
+        foreach (var kv in _navCenter)
+        {
+            double near = Math.Clamp(1 - Math.Abs(lensC - kv.Value) / (LensW * 0.85), 0, 1);
+            if (_navBrush.TryGetValue(kv.Key, out var br)) br.Color = FK.Lerp(off, on, near);
+            if (_navScale.TryGetValue(kv.Key, out var sc)) sc.ScaleX = sc.ScaleY = 1 + 0.09 * near;
+        }
+        _mini.Width = Math.Max(1, Math.Min(w, CollapsedWidthNow));
 
         if (_incoming != null)
         {
+            // Troca em sequência: a página antiga sai primeiro (0 → 30%) e só então a nova entra (22% → 100%),
+            // assim nunca há duas páginas visíveis ao mesmo tempo (sem "ghosting").
             double t = _pg.Value;
-            _incoming.Opacity = Math.Clamp(t, 0, 1);
-            ((TranslateTransform)_incoming.RenderTransform).X = (1 - t) * 26;
+            double tin = Math.Clamp((t - 0.3) / 0.7, 0, 1), tout = Math.Clamp(t / 0.3, 0, 1);
+            _incoming.Opacity = tin;
+            ((TranslateTransform)_incoming.RenderTransform).X = (1 - t) * 44 * _dir;
             if (_outgoing != null)
             {
-                _outgoing.Opacity = Math.Clamp(1 - t * 1.5, 0, 1);
-                ((TranslateTransform)_outgoing.RenderTransform).X = -t * 26;
+                _outgoing.Opacity = 1 - tout;
+                if (tout >= 1) _outgoing.Visibility = Visibility.Hidden;
+                ((TranslateTransform)_outgoing.RenderTransform).X = -tout * 32 * _dir;
             }
             if (_pg.Settled) FinishTransition();
         }
@@ -626,8 +748,10 @@ public sealed class IslandWindow : Window
 
     void ArmCollapse()
     {
-        _collapseT.Interval = TimeSpan.FromSeconds(Math.Max(0.3, S.AutoCollapseSeconds));
-        _collapseT.Stop(); _collapseT.Start();
+        _collapseT.Stop();
+        if (S.CollapseDelayMs <= 0 && !KeepOpen && !_island.IsMouseOver) { Collapse(); return; }
+        _collapseT.Interval = TimeSpan.FromMilliseconds(Math.Max(30, S.CollapseDelayMs));
+        _collapseT.Start();
     }
 
     bool KeepOpen => CurrentPage()?.KeepOpen == true || IsKeyboardFocusWithin && Keyboard.FocusedElement is TextBox
@@ -638,9 +762,14 @@ public sealed class IslandWindow : Window
         _collapseT.Stop();
         if (_st != St.Expanded) return;
         if (KeepOpen) { ArmCollapse(); return; }
-        double idle = (DateTime.Now - _activity).TotalSeconds;
-        double limit = _island.IsMouseOver ? Math.Max(10, S.AutoCollapseSeconds * 5) : S.AutoCollapseSeconds;
-        if (idle < limit) { ArmCollapse(); return; }
+        if (_island.IsMouseOver)
+        {
+            // mouse parado em cima: só recolhe por inatividade, se isso estiver ligado
+            double lim = S.IdleCollapseSeconds;
+            if (lim > 0 && (DateTime.Now - _activity).TotalSeconds >= lim) { Collapse(); return; }
+            _collapseT.Interval = TimeSpan.FromSeconds(1); _collapseT.Start();
+            return;
+        }
         Collapse();
     }
 
@@ -649,36 +778,76 @@ public sealed class IslandWindow : Window
     {
         _bTitle.Text = it.Title; _bText.Text = it.Text.Length > 0 ? it.Text : it.Source;
         _bIcon.Text = it.Source.Length > 0 ? it.Source[..1].ToUpperInvariant() : "!";
-        _bBadge.Background = it.Important ? K.Orange : K.Blue;
+        var brand = Brand.Match(it.Source);
+        if (brand != null)
+        {
+            var (bg, fg) = Brand.Colors(brand);
+            _bBadge.Child = Brand.Logo(brand, 20, fg);
+            _bBadge.Background = bg;
+        }
+        else { _bBadge.Child = _bIcon; _bBadge.Background = it.Important ? K.Orange : K.CardStrong; }
         if (_st == St.Expanded || Visibility != Visibility.Visible) return;
         SetState(St.Banner);
         _bannerT.Interval = TimeSpan.FromSeconds(it.Important ? S.BannerSeconds + 3 : S.BannerSeconds);
         _bannerT.Stop(); _bannerT.Start();
     }
 
-    // ---------------- Mini dynamic capsule ----------------
-    public void RefreshMini()
+    // ---------------- Pílula recolhida: LED pulsante ----------------
+    bool IsActive()
     {
-        var m = Svc.Media; var ag = Svc.Agents; var f = Svc.Focus;
-        string text; string? glyph = null; ImageSource? cover = null;
-        var attention = S.IsOn("ai") ? ag.Attention : null;
-        var working = S.IsOn("ai") ? ag.Working : null;
+        if (S.IsOn("focus") && Svc.Focus.AnyRunning) return true;
+        if (S.IsOn("media") && Svc.Media.Playing && Svc.Media.Title.Length > 0) return true;
+        if (S.IsOn("ai") && (Svc.Agents.Attention != null || Svc.Agents.Working != null)) return true;
+        if (Svc.Camera.IsOn || Svc.Dictation.Listening) return true;
+        if (Svc.Audio.MicInUse && S.MonitorMicrophone) return true;
+        return false;
+    }
 
-        if (attention != null) { glyph = "\uE7BA"; text = Trim(attention.Name + " precisa de você", 22); _miniGlyph.Foreground = K.Orange; }
-        else if (f.Running) { glyph = "\uE916"; text = f.PhaseLabel + " " + K.Fmt(f.Display); _miniGlyph.Foreground = K.Fg; }
-        else if (working != null) { glyph = "\uE945"; text = Trim(working.Name + " trabalhando…", 22); _miniGlyph.Foreground = K.Green; }
-        else if (m.Playing && m.Title.Length > 0 && S.IsOn("media")) { cover = m.Cover; glyph = "\uE8D6"; text = Trim(m.Title, 22); _miniGlyph.Foreground = K.Fg; }
-        else { text = DateTime.Now.ToString("HH:mm", CultureInfo.CurrentCulture); }
+    public void RefreshMini() { SetLed(IsActive()); SetMiniMedia(MediaPlaying()); }
 
-        if (cover != null) { _miniCover.Source = cover; _miniCoverBox.Visibility = Visibility.Visible; _miniGlyph.Visibility = Visibility.Collapsed; }
-        else { _miniCoverBox.Visibility = Visibility.Collapsed; _miniGlyph.Visibility = glyph != null ? Visibility.Visible : Visibility.Collapsed; if (glyph != null) _miniGlyph.Text = glyph; }
-        _miniText.Text = text;
-        _miniRight.Text = Svc.Battery.HasBattery ? Svc.Battery.Percent + "%" : "";
+    static bool MediaPlaying() => S.IsOn("media") && Svc.Media.HasSession && Svc.Media.Playing && Svc.Media.Title.Length > 0;
 
-        // Privacy indicator dots (iOS/macOS style: orange = mic, green = camera)
-        if (Svc.Camera.IsOn) { _miniDot.Fill = K.Green; _miniDot.Visibility = Visibility.Visible; }
-        else if (Svc.Audio.MicInUse && S.MonitorMicrophone) { _miniDot.Fill = K.Orange; _miniDot.Visibility = Visibility.Visible; }
-        else _miniDot.Visibility = Visibility.Collapsed;
+    void SetMiniMedia(bool on)
+    {
+        bool video = Svc.Media.IsVideo;
+        if (on && (_miniIconHost.Child == null || video != _miniVideo))
+        {
+            _miniVideo = video;
+            _miniIconHost.Child = Ico.Make(video ? "video" : "music", 16, Brushes.White, 1.8);
+        }
+        _miniEq.Playing = on;
+        if (_miniMediaOn != on)
+        {
+            bool first = _miniMediaOn == null;
+            _miniMediaOn = on;
+            double ms = first || !S.Animations ? 1 : 320;
+            var ease = new SineEase { EasingMode = EasingMode.EaseInOut };
+            _miniMedia.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(on ? 1 : 0, TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease });
+            _ledHost.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(on ? 0 : 1, TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease });
+        }
+        _miniEq.Running = on && _st == St.Collapsed;
+    }
+
+    void SetLed(bool active)
+    {
+        if (!_ledPulsing && S.Animations)
+        {
+            _ledPulsing = true;
+            _ledIdle.Pulse(1700);     // ocioso: respiração lenta
+            _ledActive.Pulse(950);    // ativo: um pouco mais viva
+        }
+        if (_ledOn == active) return;
+        bool first = _ledOn == null;
+        _ledOn = active;
+        if (first || !S.Animations)
+        {
+            _ledIdle.BeginAnimation(UIElement.OpacityProperty, null); _ledActive.BeginAnimation(UIElement.OpacityProperty, null);
+            _ledIdle.Opacity = active ? 0 : 1; _ledActive.Opacity = active ? 1 : 0;
+            return;
+        }
+        var sine = new SineEase { EasingMode = EasingMode.EaseInOut };
+        _ledIdle.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(active ? 0 : 1, TimeSpan.FromMilliseconds(550)) { EasingFunction = sine });
+        _ledActive.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(active ? 1 : 0, TimeSpan.FromMilliseconds(550)) { EasingFunction = sine });
     }
 
     static string Trim(string s, int n) => s.Length > n ? s[..n] + "…" : s;

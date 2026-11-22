@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "/xtFVl/ScmI=",
+  "dgSpecHash": "wGlDF12UuLE=",
   "success": true,
-  "projectFilePath": "C:\\Users\\scarl\\Downloads\\TzIsland\\TzIsland.csproj",
+  "projectFilePath": "C:\\Users\\scarl\\Downloads\\TzIsland-v2.1\\TzIsland.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\scarl\\.nuget\\packages\\microsoft.net.illink.tasks\\8.0.34\\microsoft.net.illink.tasks.8.0.34.nupkg.sha512",
     "C:\\Users\\scarl\\.nuget\\packages\\microsoft.netcore.platforms\\3.1.0\\microsoft.netcore.platforms.3.1.0.nupkg.sha512",

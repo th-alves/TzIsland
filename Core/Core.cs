@@ -6,6 +6,7 @@ public enum IslandStyle { Classic, Floating }
 public enum IslandLook { LiquidGlass, DarkGlass, SolidBlack }
 public enum IslandAnchor { TopCenter, TopLeft, TopRight, Custom }
 public enum FullscreenMode { Hide, NoExpand, Keep }
+public enum CollapseMode { Instant, Fast, Smooth }
 
 public class ShortcutItem
 {
@@ -25,10 +26,10 @@ public class AppSettings
 {
     // Aparência
     public IslandStyle Style { get; set; } = IslandStyle.Classic;
-    public IslandLook Look { get; set; } = IslandLook.LiquidGlass;
-    public double ExpandedWidth { get; set; } = 680;
-    public double ExpandedHeight { get; set; } = 340;
-    public double CollapsedWidth { get; set; } = 210;
+    public IslandLook Look { get; set; } = IslandLook.SolidBlack;
+    public double ExpandedWidth { get; set; } = 760;
+    public double ExpandedHeight { get; set; } = 356;
+    public double CollapsedWidth { get; set; } = 150;
     public double CollapsedHeight { get; set; } = 36;
     public double Opacity { get; set; } = 0.85;     // transparência do vidro (0.3 a 1)
     public double BlurAmount { get; set; } = 36;    // desfoque do vidro (0 desliga)
@@ -46,11 +47,18 @@ public class AppSettings
     public bool ExpandOnClick { get; set; } = true;
     public bool AllowDrag { get; set; } = true;
     public int HoverDelayMs { get; set; } = 140;
-    public double AutoCollapseSeconds { get; set; } = 1.6;
+    public int CollapseDelayMs { get; set; } = 250;          // espera depois que o mouse sai da ilha
+    public double IdleCollapseSeconds { get; set; } = 8;     // recolhe se o mouse ficar parado em cima (0 = nunca)
+    public CollapseMode CollapseSpeed { get; set; } = CollapseMode.Fast;
     public FullscreenMode Fullscreen { get; set; } = FullscreenMode.Hide;
     public bool StartWithWindows { get; set; }
     public bool ShowTrayIcon { get; set; } = true;
     public Dictionary<string, bool> Modules { get; set; } = new();
+
+    // Ambientação
+    public double AmbienceVolume { get; set; } = 0.7;
+    public int AmbienceFadeMinutes { get; set; }                       // 0 = sem fade-out automático
+    public Dictionary<string, double> AmbienceLevels { get; set; } = new();
 
     // Notificações
     public bool BannerEnabled { get; set; } = true;
@@ -133,6 +141,12 @@ public static class Settings
     public static void Apply()
     {
         Changed?.Invoke();
+        Save();
+    }
+
+    /// <summary>Só grava em disco (com debounce), sem avisar a interface — para ajustes que não mudam o layout.</summary>
+    public static void Save()
+    {
         _timer?.Dispose();
         _timer = new System.Threading.Timer(_ =>
         {
@@ -210,6 +224,8 @@ public static class Modules
     {
         new("home", "\uE80F", "Início"),
         new("media", "\uE8D6", "Mídia"),
+        new("focus", "\uE916", "Foco"),
+        new("ambience", "\uE995", "Ambientação"),
         new("inbox", "\uE715", "Inbox"),
         new("productivity", "\uE70F", "Produtividade"),
         new("system", "\uE772", "Sistema"),

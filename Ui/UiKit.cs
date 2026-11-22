@@ -7,8 +7,14 @@ namespace TzIsland;
 public static class K
 {
     public static readonly FontFamily Icons = new("Segoe Fluent Icons, Segoe MDL2 Assets");
-    public static readonly FontFamily Font = new("Segoe UI Variable Text, Segoe UI");
-    public static readonly FontFamily DisplayFont = new("Segoe UI Variable Display, Segoe UI");
+
+    // Inter embutida (pasta Fonts/). Se por algum motivo não carregar, cai para a fonte do Windows.
+    static readonly Uri FontBase = new("pack://application:,,,/");
+    public static readonly FontFamily Font = new(FontBase, "./Fonts/#Inter, Segoe UI Variable Text, Segoe UI");
+    public static readonly FontFamily FontMedium = new(FontBase, "./Fonts/#Inter Medium, Segoe UI Variable Text, Segoe UI");
+    public static readonly FontFamily FontSemi = new(FontBase, "./Fonts/#Inter SemiBold, Segoe UI Variable Display, Segoe UI");
+    public static readonly FontFamily DisplayFont = FontSemi;
+    public static readonly FontFamily Mono = new("Cascadia Mono, Consolas, Courier New");
 
     static SolidColorBrush Mk(string hex)
     {
@@ -17,17 +23,23 @@ public static class K
         return b;
     }
 
-    public static readonly Brush Fg = Mk("#F0F5F5F7"), Dim = Mk("#9986868B"), Faint = Mk("#4448484A"),
-        Card = Mk("#1E1C1C1E"), CardStrong = Mk("#322C2C2E"), Blue = Mk("#FF0A84FF"), Green = Mk("#FF30D158"),
+    // ---- Paleta "Premium Night Black": preto puro, cartões quase-pretos neutros, bordas de 1 px, texto em cinzas Apple.
+    public static readonly Brush Fg = Mk("#FFF5F5F7"), Dim = Mk("#FFA1A1A6"), Faint = Mk("#FF6E6E73"),
+        Card = Mk("#FF141416"), CardStrong = Mk("#FF232326"), Green = Mk("#FF30D158"),
         Red = Mk("#FFFF453A"), Orange = Mk("#FFFF9F0A"), Clear = Brushes.Transparent,
         Cyan = Mk("#FF64D2FF"), Purple = Mk("#FFBF5AF2"), Neon = Mk("#FF00D4AA");
 
-    public static readonly Brush Indigo = Mk("#FF5E5CE6"), Mint = Mk("#FF63E6BE"), Rose = Mk("#FFFF6B9D");
+    // Acentos: o app é monocromático; cada seção usa no máximo UMA cor de destaque.
+    public static readonly Brush Violet = Mk("#FFB566FF"), Sky = Mk("#FF64B5FF");
+
+    public static readonly Brush Surface = Mk("#FF0E0E10"), Stroke = Mk("#FF1D1D20"), StrokeHi = Mk("#FF323236"),
+        Accent = Mk("#FFFFFFFF"), Label = Mk("#FF8E8E93"), Muted = Mk("#FF636366"),
+        Track = Mk("#FF2A2A2D"), White = Mk("#FFFFFFFF"), Ink = Mk("#FF0A0A0B"), Bg = Mk("#FF000000");
 
     public static SolidColorBrush Hex(string hex) => Mk(hex);
 
-    public static LinearGradientBrush Accent => new(Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0x5E, 0x5C, 0xE6), 45);
-    public static LinearGradientBrush GlowBorder => new(Color.FromArgb(60, 0x0A, 0x84, 0xFF), Color.FromArgb(32, 0x5E, 0x5C, 0xE6), new Point(0, 0), new Point(1, 1));
+    public static LinearGradientBrush AccentGradient => new(Color.FromRgb(0xFF, 0xFF, 0xFF), Color.FromRgb(0xD8, 0xD8, 0xDE), 0);
+    public static LinearGradientBrush VioletGradient => new(Color.FromRgb(0xD0, 0x8C, 0xFF), Color.FromRgb(0xA8, 0x55, 0xF7), 0);
 
     const string Ns = "xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"";
 
@@ -73,20 +85,21 @@ public static class K
     static readonly Style GhostStyle = MakeButtonStyle(true);
     static readonly Style FillStyle = MakeButtonStyle(false);
     public static Style Ghost => GhostStyle;
+    public static Style Fill => FillStyle;
 
     static readonly Style BoxStyle = (Style)XamlReader.Parse($$"""
 <Style {{Ns}} TargetType="TextBox">
   <Setter Property="Foreground" Value="White"/>
   <Setter Property="CaretBrush" Value="White"/>
-  <Setter Property="SelectionBrush" Value="#550A84FF"/>
-  <Setter Property="Background" Value="#18FFFFFF"/>
+  <Setter Property="SelectionBrush" Value="#55FFFFFF"/>
+  <Setter Property="Background" Value="#FF0E0E10"/>
   <Setter Property="Padding" Value="12,8"/>
   <Setter Property="FontSize" Value="12"/>
   <Setter Property="Template">
     <Setter.Value>
       <ControlTemplate TargetType="TextBox">
         <Grid>
-          <Border Background="{TemplateBinding Background}" CornerRadius="12"/>
+          <Border Background="{TemplateBinding Background}" CornerRadius="12" BorderBrush="#FF1D1D20" BorderThickness="1"/>
           <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Hidden"/>
           <TextBlock x:Name="hint" Text="{TemplateBinding Tag}" Foreground="#4DFFFFFF" Margin="{TemplateBinding Padding}" IsHitTestVisible="False" Visibility="Collapsed" FontSize="{TemplateBinding FontSize}" VerticalAlignment="Center"/>
         </Grid>
@@ -102,9 +115,36 @@ public static class K
     // ---------- constructors ----------
     public static TextBlock T(string text, double size = 12, Brush? fg = null, bool bold = false) => new()
     {
-        Text = text, FontSize = size, Foreground = fg ?? Fg, FontFamily = size >= 20 ? DisplayFont : Font,
+        Text = text, FontSize = size, Foreground = fg ?? Fg,
+        FontFamily = bold ? FontSemi : (size >= 20 ? FontMedium : Font),
         FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal, TextTrimming = TextTrimming.CharacterEllipsis
     };
+
+    /// <summary>Números grandes (timers, relógio): Inter SemiBold com algarismos tabulares, que não "pulam" ao mudar.</summary>
+    public static TextBlock Num(string text, double size, Brush? fg = null)
+    {
+        var t = T(text, size, fg ?? Fg, true);
+        t.TextTrimming = TextTrimming.None;
+        System.Windows.Documents.Typography.SetNumeralAlignment(t, FontNumeralAlignment.Tabular);
+        return t;
+    }
+
+    /// <summary>CAIXA ALTA com "hair space" entre as letras: simula o espaçamento (tracking) que o WPF não tem.</summary>
+    public static string Spaced(string text)
+    {
+        var up = text.ToUpperInvariant();
+        var sb = new System.Text.StringBuilder(up.Length * 2);
+        for (int i = 0; i < up.Length; i++) { sb.Append(up[i]); if (i < up.Length - 1 && up[i] != ' ' && up[i + 1] != ' ') sb.Append('\u200A'); }
+        return sb.ToString();
+    }
+
+    /// <summary>Rótulo de cartão: caixa alta pequena e espaçada, no estilo das referências.</summary>
+    public static TextBlock Cap(string text, double size = 9.5, Brush? fg = null)
+    {
+        var t = T(Spaced(text), size, fg ?? Label, true);
+        t.TextTrimming = TextTrimming.None;
+        return t;
+    }
 
     public static TextBlock Glyph(string g, double size = 15, Brush? fg = null) => new()
     {
@@ -128,7 +168,7 @@ public static class K
         var b = new Button
         {
             Style = accent ? FillStyle : GhostStyle, Padding = new Thickness(13, 6, 13, 6), Tag = new CornerRadius(10),
-            Background = accent ? Accent : Card, Content = T(text, size, Fg, true)
+            Background = accent ? White : Card, Content = T(text, size, accent ? Ink : Fg, true)
         };
         b.Click += (_, _) => click();
         return b;
@@ -143,8 +183,8 @@ public static class K
 
     public static Border CardBox(UIElement? child = null, double radius = 16, Thickness? pad = null) => new()
     {
-        Background = Mk("#0DFFFFFF"), CornerRadius = new CornerRadius(radius), Padding = pad ?? new Thickness(12), Child = child,
-        BorderBrush = Mk("#12FFFFFF"), BorderThickness = new Thickness(0.5)
+        Background = Surface, CornerRadius = new CornerRadius(Math.Max(radius, 16)), Padding = pad ?? new Thickness(13), Child = child,
+        BorderBrush = Stroke, BorderThickness = new Thickness(1)
     };
 
     public static GridLength GL(string s) =>
@@ -181,38 +221,90 @@ public static class K
 
     public static ScrollViewer Scroll(UIElement content) => SmoothScroll.Create(content);
 
+    /// <summary>
+    /// Recorta o elemento com cantos arredondados de verdade. ClipToBounds num Border com CornerRadius recorta em retângulo,
+    /// então imagens e fundos "vazam" pelos cantos; este recorte acompanha o tamanho do elemento.
+    /// </summary>
+    public static T RoundClip<T>(T el, double radius) where T : FrameworkElement
+    {
+        void Apply()
+        {
+            if (el.ActualWidth <= 0 || el.ActualHeight <= 0) return;
+            var g = new RectangleGeometry(new Rect(0, 0, el.ActualWidth, el.ActualHeight), radius, radius);
+            g.Freeze(); el.Clip = g;
+        }
+        el.SizeChanged += (_, _) => Apply();
+        Apply();
+        return el;
+    }
+
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<UIElement, object> FadeTokens = new();
+
     public static void FadeIn(UIElement el, int delayMs = 0, double fromY = 10)
     {
+        el.BeginAnimation(UIElement.OpacityProperty, null);
         el.Opacity = 0;
         var tt = new TranslateTransform(0, fromY);
         el.RenderTransform = tt;
         var ease = new QuarticEase { EasingMode = EasingMode.EaseOut };
         var begin = TimeSpan.FromMilliseconds(delayMs);
+        var tok = new object();
+        FadeTokens.Remove(el); FadeTokens.Add(el, tok);
+        var yAnim = new DoubleAnimation(fromY, 0, TimeSpan.FromMilliseconds(450)) { BeginTime = begin, EasingFunction = ease };
+        yAnim.Completed += (_, _) =>
+        {
+            // só libera se esta ainda for a animação mais recente deste elemento
+            if (!FadeTokens.TryGetValue(el, out var cur) || !ReferenceEquals(cur, tok)) return;
+            el.BeginAnimation(UIElement.OpacityProperty, null); el.Opacity = 1;
+            tt.BeginAnimation(TranslateTransform.YProperty, null); tt.Y = 0;
+        };
         el.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(350)) { BeginTime = begin, EasingFunction = ease });
-        tt.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(fromY, 0, TimeSpan.FromMilliseconds(450)) { BeginTime = begin, EasingFunction = ease });
+        tt.BeginAnimation(TranslateTransform.YProperty, yAnim);
     }
 
     public static string Fmt(TimeSpan t) => t.TotalHours >= 1 ? $"{(int)t.TotalHours}:{t.Minutes:00}:{t.Seconds:00}" : $"{t.Minutes:00}:{t.Seconds:00}";
     public static string Fmt(double seconds) => Fmt(TimeSpan.FromSeconds(seconds));
 }
 
-/// <summary>Smooth inertial scrolling — mouse wheel animates offset instead of jumping.</summary>
+/// <summary>
+/// Rolagem suave: cada giro da roda soma ao alvo acumulado (girar rápido anda mais) e a posição o persegue
+/// com suavização exponencial a cada frame — sem reiniciar animações.
+/// </summary>
 public static class SmoothScroll
 {
-    public static readonly DependencyProperty OffsetProperty = DependencyProperty.RegisterAttached(
-        "Offset", typeof(double), typeof(SmoothScroll),
-        new PropertyMetadata(0.0, (d, e) => ((ScrollViewer)d).ScrollToVerticalOffset((double)e.NewValue)));
+    const double PixelsPerDelta = 1.9;   // 120 de delta ≈ 228 px por "clique"
+    const double Smoothing = 15;         // maior = mais responsivo
 
     public static ScrollViewer Create(UIElement content)
     {
         var sv = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = content };
+        double target = 0, pos = 0;
+        bool running = false;
+        long last = 0;
+        EventHandler? handler = null;
+
+        void Stop() { if (running && handler != null) { CompositionTarget.Rendering -= handler; running = false; } }
+
+        handler = (_, _) =>
+        {
+            long now = Stopwatch.GetTimestamp();
+            double dt = Math.Min(0.05, (now - last) / (double)Stopwatch.Frequency);
+            last = now;
+            target = Math.Clamp(target, 0, sv.ScrollableHeight);
+            pos += (target - pos) * (1 - Math.Exp(-dt * Smoothing));
+            if (Math.Abs(target - pos) < 0.35) { pos = target; Stop(); }
+            sv.ScrollToVerticalOffset(pos);
+        };
+
         sv.PreviewMouseWheel += (_, e) =>
         {
+            if (sv.ScrollableHeight <= 0.5) return;       // nada para rolar: deixa o evento seguir
             e.Handled = true;
-            double target = Math.Clamp(sv.VerticalOffset - e.Delta * 1.0, 0, sv.ScrollableHeight);
-            sv.BeginAnimation(OffsetProperty, new DoubleAnimation(sv.VerticalOffset, target, TimeSpan.FromMilliseconds(280))
-            { EasingFunction = new QuarticEase { EasingMode = EasingMode.EaseOut } });
+            if (!running) { pos = sv.VerticalOffset; target = pos; }
+            target = Math.Clamp(target - e.Delta * PixelsPerDelta, 0, sv.ScrollableHeight);
+            if (!running) { running = true; last = Stopwatch.GetTimestamp(); CompositionTarget.Rendering += handler; }
         };
+        sv.Unloaded += (_, _) => Stop();
         return sv;
     }
 }
@@ -224,7 +316,8 @@ public sealed class PillSlider : FrameworkElement
     bool _drag;
     public bool ReadOnly { get; set; }
     public event Action<double>? Changed;
-    public Brush Fill { get; set; } = new LinearGradientBrush(Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0x5E, 0x5C, 0xE6), 0);
+    public Brush Fill { get; set; } = K.AccentGradient;
+    public bool ShowThumb { get; set; }
 
     public PillSlider() { Height = 22; Cursor = Cursors.Hand; }
 
@@ -237,9 +330,10 @@ public sealed class PillSlider : FrameworkElement
     protected override void OnRender(DrawingContext dc)
     {
         double w = ActualWidth, h = 6, y = (ActualHeight - h) / 2;
-        dc.DrawRoundedRectangle(K.CardStrong, null, new Rect(0, y, w, h), 3, 3);
+        dc.DrawRoundedRectangle(K.Track, null, new Rect(0, y, w, h), 3, 3);
         double fw = Math.Max(h, _v * w);
         dc.DrawRoundedRectangle(Fill, null, new Rect(0, y, fw, h), 3, 3);
+        if (ShowThumb) dc.DrawEllipse(K.White, null, new Point(Math.Clamp(_v * w, 4.5, w - 4.5), ActualHeight / 2), 4.5, 4.5);
     }
 
     void Set(Point p)
@@ -284,7 +378,7 @@ public sealed class RingGauge : FrameworkElement
         {
             dc.DrawEllipse(null, track, c, r, r);
             double pct = Math.Clamp(_v.Value, 0, 100);
-            Brush col = pct >= 95 ? K.Red : pct >= 80 ? K.Orange : K.Cyan;
+            Brush col = pct >= 95 ? K.Red : pct >= 80 ? K.Orange : K.White;
             var pen = new Pen(col, 4) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
             double ang = pct / 100 * 359.9 - 90;
             var start = new Point(c.X, c.Y - r);
@@ -319,4 +413,6 @@ public abstract class PageBase : IPage
     public virtual void Shown() { }
     public virtual void Hidden() { }
     public virtual bool KeepOpen => false;
+    /// <summary>Elementos que entram em cascata quando a página aparece (padrão: cartões e blocos de primeiro nível).</summary>
+    public virtual IEnumerable<FrameworkElement> RevealTargets => Motion.Targets(Root);
 }

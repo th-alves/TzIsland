@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\scarl\\Downloads\\TzIsland\\TzIsland.csproj": {}
+    "C:\\Users\\scarl\\Downloads\\TzIsland-v2.1\\TzIsland.csproj": {}
   },
   "projects": {
-    "C:\\Users\\scarl\\Downloads\\TzIsland\\TzIsland.csproj": {
-      "version": "2.0.0",
+    "C:\\Users\\scarl\\Downloads\\TzIsland-v2.1\\TzIsland.csproj": {
+      "version": "2.1.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\scarl\\Downloads\\TzIsland\\TzIsland.csproj",
+        "projectUniqueName": "C:\\Users\\scarl\\Downloads\\TzIsland-v2.1\\TzIsland.csproj",
         "projectName": "TzIsland",
-        "projectPath": "C:\\Users\\scarl\\Downloads\\TzIsland\\TzIsland.csproj",
+        "projectPath": "C:\\Users\\scarl\\Downloads\\TzIsland-v2.1\\TzIsland.csproj",
         "packagesPath": "C:\\Users\\scarl\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\scarl\\Downloads\\TzIsland\\obj\\",
+        "outputPath": "C:\\Users\\scarl\\Downloads\\TzIsland-v2.1\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\scarl\\AppData\\Roaming\\NuGet\\NuGet.Config"

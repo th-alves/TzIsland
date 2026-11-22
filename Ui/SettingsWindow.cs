@@ -1,8 +1,10 @@
+using System.Windows.Interop;
+using Shapes = System.Windows.Shapes;
+
 namespace TzIsland;
 
 /// <summary>
-/// Settings Center: Unified Apple-style control center for visual customization,
-/// behavior controls, hardware monitor integrations, and privacy safeguards.
+/// Central de Configurações no mesmo estilo da ilha: barra lateral, cartões índigo, switches e sliders coral.
 /// </summary>
 public sealed class SettingsWindow : Window
 {
@@ -17,96 +19,202 @@ public sealed class SettingsWindow : Window
 
     static AppSettings S => Settings.Current;
 
+    readonly Grid _pageHost = new();
+    readonly List<(Button btn, TextBlock glyph, TextBlock label, Func<StackPanel> build)> _nav = new();
+    int _tab = -1;
+
     public SettingsWindow()
     {
         Title = "TzIsland — Configurações";
-        Width = 660; Height = 660; MinWidth = 540; MinHeight = 440;
+        Width = 900; Height = 680; MinWidth = 740; MinHeight = 480;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Background = new SolidColorBrush(Color.FromRgb(0x1C, 0x1C, 0x1E));
+        Background = K.Hex("#FF050505");
         Foreground = K.Fg;
+        FontFamily = K.Font;
+        UseLayoutRounding = true;
+        SourceInitialized += (_, _) =>
+        {
+            try { int on = 1; Native.DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref on, 4); } catch { }   // barra de título escura
+        };
 
-        var tabs = new TabControl { Margin = new Thickness(10) };
-        tabs.Items.Add(Tab("Aparência", Appearance()));
-        tabs.Items.Add(Tab("Comportamento", Behavior()));
-        tabs.Items.Add(Tab("Módulos", ModulesTab()));
-        tabs.Items.Add(Tab("Notificações", Notifs()));
-        tabs.Items.Add(Tab("Integrações", Integrations()));
-        tabs.Items.Add(Tab("Atalhos", Hotkeys()));
-        tabs.Items.Add(Tab("Privacidade", Privacy()));
-        Content = tabs;
+        var root = K.Cols("224", "*");
+
+        // ---- Barra lateral
+        var side = new Border { Background = K.Hex("#FF0A0A0B"), BorderBrush = K.Stroke, BorderThickness = new Thickness(0, 0, 1, 0) };
+        var sp = new StackPanel { Margin = new Thickness(14, 22, 14, 14) };
+        var brand = new StackPanel { Margin = new Thickness(8, 0, 0, 18) };
+        brand.Children.Add(FK.Mono("TZISLAND", 15, K.Fg));
+        brand.Children.Add(FK.Mono("CONFIGURAÇÕES", 9.5, K.Accent, true).M(0, 2, 0, 0));
+        sp.Children.Add(brand);
+
+        AddTab(sp, "\uE706", "Aparência", Appearance);
+        AddTab(sp, "\uE713", "Comportamento", Behavior);
+        AddTab(sp, "\uE772", "Módulos", ModulesTab);
+        AddTab(sp, "\uE715", "Notificações", Notifs);
+        AddTab(sp, "\uE71B", "Integrações", Integrations);
+        AddTab(sp, "\uE765", "Atalhos", Hotkeys);
+        AddTab(sp, "\uE72E", "Privacidade", Privacy);
+        side.Child = sp;
+        root.Children.Add(side);
+
+        _pageHost.Margin = new Thickness(26, 8, 8, 8);
+        root.Children.Add(_pageHost.At(col: 1));
+        Content = root;
+        SelectTab(0);
     }
 
-    static TabItem Tab(string header, StackPanel body) => new()
+    void AddTab(StackPanel host, string glyph, string title, Func<StackPanel> build)
     {
-        Header = header,
-        Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = body, Padding = new Thickness(16) }
-    };
+        int idx = _nav.Count;
+        var g = K.Glyph(glyph, 14, K.Label);
+        g.Width = 22; g.HorizontalAlignment = HorizontalAlignment.Left;
+        var t = K.T(title, 13, K.Label, true);
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Width = 168 };
+        row.Children.Add(g); row.Children.Add(t.Vc());
+        var b = new Button { Style = K.Ghost, Content = row, Height = 40, Margin = new Thickness(0, 0, 0, 4), Tag = new CornerRadius(12), Padding = new Thickness(12, 0, 8, 0), HorizontalAlignment = HorizontalAlignment.Stretch };
+        b.Click += (_, _) => SelectTab(idx);
+        host.Children.Add(b);
+        _nav.Add((b, g, t, build));
+    }
 
+    void SelectTab(int i)
+    {
+        if (i == _tab) return;
+        _tab = i;
+        for (int k = 0; k < _nav.Count; k++)
+        {
+            bool on = k == i;
+            _nav[k].btn.Background = on ? K.White : K.Clear;
+            _nav[k].glyph.Foreground = on ? K.Ink : K.Label;
+            _nav[k].label.Foreground = on ? K.Ink : K.Label;
+        }
+        var body = _nav[i].build();
+        body.Margin = new Thickness(0, 6, 18, 28);
+        var sv = K.Scroll(body);
+        _pageHost.Children.Clear();
+        _pageHost.Children.Add(sv);
+        K.FadeIn(sv, 0, 14);
+    }
+
+    // ---------------- Componentes ----------------
+    static readonly Dictionary<StackPanel, StackPanel> Cards = new();
     static StackPanel Panel() => new();
+    static StackPanel Host(StackPanel p) => Cards.TryGetValue(p, out var c) ? c : p;
 
-    static void Section(StackPanel p, string t) => p.Children.Add(new TextBlock
+    static void AddRow(StackPanel p, UIElement row)
     {
-        Text = t,
-        FontWeight = FontWeights.SemiBold,
-        FontSize = 14,
-        Foreground = K.Fg,
-        Margin = new Thickness(0, 14, 0, 6)
-    });
+        var h = Host(p);
+        if (!ReferenceEquals(h, p) && h.Children.Count > 0)
+            h.Children.Add(new Border { Height = 1, Background = K.Stroke, Margin = new Thickness(0, 0, 0, 0) });
+        h.Children.Add(row);
+    }
 
-    static void Note(StackPanel p, string t) => p.Children.Add(new TextBlock
+    static void Section(StackPanel p, string t)
     {
-        Text = t,
-        Foreground = K.Dim,
-        FontSize = 11,
-        TextWrapping = TextWrapping.Wrap,
-        Margin = new Thickness(0, 2, 0, 6)
-    });
+        var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 18, 0, 8) };
+        head.Children.Add(new Border { Width = 6, Height = 6, CornerRadius = new CornerRadius(3), Background = K.Accent, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 9, 0) });
+        head.Children.Add(FK.Mono(t.ToUpperInvariant(), 11, K.Label, true).Vc());
+        p.Children.Add(head);
+        var inner = new StackPanel();
+        p.Children.Add(K.CardBox(inner, 16, new Thickness(18, 4, 18, 8)));
+        Cards[p] = inner;
+    }
 
-    static CheckBox Check(StackPanel p, string label, Func<bool> get, Action<bool> set)
+    static void Note(StackPanel p, string t)
     {
-        var c = new CheckBox { Content = label, IsChecked = get(), Margin = new Thickness(0, 4, 0, 4) };
-        c.Click += (_, _) => { set(c.IsChecked == true); Settings.Apply(); };
-        p.Children.Add(c); return c;
+        var n = K.T(t, 11.5, K.Muted);
+        n.TextWrapping = TextWrapping.Wrap; n.TextTrimming = TextTrimming.None; n.Margin = new Thickness(0, 8, 0, 6);
+        Host(p).Children.Add(n);
+    }
+
+    static void Check(StackPanel p, string label, Func<bool> get, Action<bool> set)
+    {
+        var g = K.Cols("*", "auto");
+        g.Margin = new Thickness(0, 12, 0, 12);
+        var l = K.T(label, 13, K.Fg); l.TextWrapping = TextWrapping.Wrap; l.TextTrimming = TextTrimming.None; l.Margin = new Thickness(0, 0, 16, 0);
+        g.Children.Add(l.Vc());
+        var sw = new SwitchToggle(); sw.SnapTo(get());
+        sw.Toggled += on => { set(on); Settings.Apply(); };
+        g.Children.Add(sw.At(col: 1));
+        AddRow(p, g);
     }
 
     static void Slide(StackPanel p, string label, double min, double max, Func<double> get, Action<double> set, string fmt = "0")
     {
-        var g = new Grid { Margin = new Thickness(0, 4, 0, 4) };
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
-        g.ColumnDefinitions.Add(new ColumnDefinition());
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
-        g.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
-        var s = new Slider { Minimum = min, Maximum = max, Value = get() }; Grid.SetColumn(s, 1);
-        var v = new TextBlock { Text = get().ToString(fmt, CultureInfo.InvariantCulture), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Foreground = K.Dim }; Grid.SetColumn(v, 2);
-        s.ValueChanged += (_, _) => { set(s.Value); v.Text = s.Value.ToString(fmt, CultureInfo.InvariantCulture); Settings.Apply(); };
-        g.Children.Add(s); g.Children.Add(v); p.Children.Add(g);
+        var box = new StackPanel { Margin = new Thickness(0, 12, 0, 12) };
+        var top = K.Cols("*", "auto");
+        var l = K.T(label, 13, K.Fg); l.TextTrimming = TextTrimming.None;
+        var v = FK.Mono(get().ToString(fmt, CultureInfo.InvariantCulture), 12, K.Accent, true);
+        top.Children.Add(l); top.Children.Add(v.At(col: 1));
+        box.Children.Add(top);
+        var s = new PillSlider { Value = max > min ? (get() - min) / (max - min) : 0, Margin = new Thickness(0, 6, 0, 0) };
+        var apply = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(70) };
+        apply.Tick += (_, _) => { apply.Stop(); Settings.Apply(); };
+        s.Changed += x =>
+        {
+            double val = min + x * (max - min);
+            if (fmt == "0") val = Math.Round(val);
+            set(val);
+            v.Text = val.ToString(fmt, CultureInfo.InvariantCulture);
+            apply.Stop(); apply.Start();
+        };
+        box.Children.Add(s);
+        AddRow(p, box);
     }
 
     static void Combo<T>(StackPanel p, string label, (string, T)[] items, Func<T> get, Action<T> set) where T : notnull
     {
-        var g = new Grid { Margin = new Thickness(0, 4, 0, 4) };
-        g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
-        g.ColumnDefinitions.Add(new ColumnDefinition());
-        g.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
-        var c = new ComboBox(); Grid.SetColumn(c, 1);
-        foreach (var (l, v) in items) c.Items.Add(new ComboBoxItem { Content = l, Tag = v });
-        foreach (ComboBoxItem it in c.Items) if (it.Tag is T t && EqualityComparer<T>.Default.Equals(t, get())) c.SelectedItem = it;
-        c.SelectionChanged += (_, _) => { if (c.SelectedItem is ComboBoxItem ci && ci.Tag is T v) { set(v); Settings.Apply(); } };
-        g.Children.Add(c); p.Children.Add(g);
+        var box = new StackPanel { Margin = new Thickness(0, 12, 0, 6) };
+        var l = K.T(label, 13, K.Fg); l.TextTrimming = TextTrimming.None;
+        box.Children.Add(l);
+        var wrap = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
+        var opts = new List<(Button b, TextBlock t, T v)>();
+        void Paint()
+        {
+            foreach (var o in opts)
+            {
+                bool on = EqualityComparer<T>.Default.Equals(o.v, get());
+                o.b.Background = on ? K.White : K.CardStrong;
+                o.t.Foreground = on ? K.Ink : K.Label;
+            }
+        }
+        foreach (var (text, value) in items)
+        {
+            var tb = K.T(text, 12, K.Label, true); tb.TextTrimming = TextTrimming.None;
+            var b = new Button { Style = K.Ghost, Content = tb, Padding = new Thickness(14, 7, 14, 7), Margin = new Thickness(0, 0, 8, 8), Tag = new CornerRadius(10) };
+            var val = value;
+            b.Click += (_, _) => { set(val); Paint(); Settings.Apply(); };
+            opts.Add((b, tb, value)); wrap.Children.Add(b);
+        }
+        Paint();
+        box.Children.Add(wrap);
+        AddRow(p, box);
     }
 
     static TextBox Text(StackPanel p, string label, Func<string> get, Action<string> set, bool multiline = false)
     {
-        p.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 8, 0, 3) });
-        var t = new TextBox { Text = get(), AcceptsReturn = multiline, TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap, MinHeight = multiline ? 64 : 0, Padding = new Thickness(6, 4, 6, 4) };
+        var box = new StackPanel { Margin = new Thickness(0, 12, 0, 12) };
+        var l = K.T(label, 12.5, K.Dim); l.TextTrimming = TextTrimming.None; l.TextWrapping = TextWrapping.Wrap;
+        box.Children.Add(l);
+        var t = K.Box("", multiline);
+        t.Text = get(); t.Margin = new Thickness(0, 7, 0, 0); t.Padding = new Thickness(12, 9, 12, 9); t.FontSize = 13;
+        if (multiline) t.MinHeight = 76;
         t.LostFocus += (_, _) => { set(t.Text); Settings.Apply(); };
-        p.Children.Add(t); return t;
+        box.Children.Add(t);
+        AddRow(p, box);
+        return t;
     }
 
-    static Button Btn(StackPanel p, string text, Action click)
+    static Button Btn(StackPanel p, string text, Action click, bool danger = false)
     {
-        var b = new Button { Content = text, Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(0, 8, 8, 0), HorizontalAlignment = HorizontalAlignment.Left };
-        b.Click += (_, _) => click(); p.Children.Add(b); return b;
+        var b = K.TextBtn(text, click, false, 12.5);
+        b.Padding = new Thickness(16, 9, 16, 9);
+        b.Margin = new Thickness(0, 10, 8, 8);
+        b.HorizontalAlignment = HorizontalAlignment.Left;
+        b.Background = danger ? K.Hex("#33FF453A") : K.CardStrong;
+        if (danger) b.Content = K.T(text, 12.5, K.Red, true);
+        Host(p).Children.Add(b);
+        return b;
     }
 
     // ---- Tabs ----
@@ -114,8 +222,8 @@ public sealed class SettingsWindow : Window
     {
         var p = Panel();
         Section(p, "Estilo da Ilha");
-        Combo(p, "Formato da ilha", new[] { ("Clássico (notch superior)", IslandStyle.Classic), ("Flutuante (estilo Dynamic Island)", IslandStyle.Floating) }, () => S.Style, v => S.Style = v);
-        Combo(p, "Aparência visual", new[] { ("Liquid Glass (vidro translúcido aero)", IslandLook.LiquidGlass), ("Dark Glass (vidro escuro executivo)", IslandLook.DarkGlass), ("Solid Black (preto OLED)", IslandLook.SolidBlack) }, () => S.Look, v => S.Look = v);
+        Combo(p, "Formato da ilha", new[] { ("Clássico", IslandStyle.Classic), ("Flutuante", IslandStyle.Floating) }, () => S.Style, v => S.Style = v);
+        Combo(p, "Aparência visual", new[] { ("Liquid Glass", IslandLook.LiquidGlass), ("Dark Glass", IslandLook.DarkGlass), ("Solid Black", IslandLook.SolidBlack) }, () => S.Look, v => S.Look = v);
         Slide(p, "Opacidade do vidro", 0.3, 1, () => S.Opacity, v => S.Opacity = v, "0.00");
         Slide(p, "Intensidade do desfoque", 0, 60, () => S.BlurAmount, v => S.BlurAmount = v);
         Note(p, "O desfoque captura realisticamente a área atrás da ilha no momento da expansão.");
@@ -127,7 +235,7 @@ public sealed class SettingsWindow : Window
         Slide(p, "Altura recolhida", 28, 56, () => S.CollapsedHeight, v => S.CollapsedHeight = v);
 
         Section(p, "Posicionamento");
-        Combo(p, "Alinhamento na tela", new[] { ("Topo, centro", IslandAnchor.TopCenter), ("Topo, esquerda", IslandAnchor.TopLeft), ("Topo, direita", IslandAnchor.TopRight), ("Personalizado (arraste livre)", IslandAnchor.Custom) }, () => S.Anchor, v => S.Anchor = v);
+        Combo(p, "Alinhamento na tela", new[] { ("Centro", IslandAnchor.TopCenter), ("Esquerda", IslandAnchor.TopLeft), ("Direita", IslandAnchor.TopRight), ("Livre (arrastar)", IslandAnchor.Custom) }, () => S.Anchor, v => S.Anchor = v);
         var screens = System.Windows.Forms.Screen.AllScreens.Select((s, i) => ($"Monitor {i + 1}{(s.Primary ? " (principal)" : "")}", i)).ToArray();
         Combo(p, "Monitor ativo", screens, () => Math.Min(S.Monitor, screens.Length - 1), v => S.Monitor = v);
         Check(p, "Permitir arrastar para reposicionar", () => S.AllowDrag, v => S.AllowDrag = v);
@@ -146,8 +254,14 @@ public sealed class SettingsWindow : Window
         Check(p, "Expandir ao passar o cursor do mouse", () => S.ExpandOnHover, v => S.ExpandOnHover = v);
         Slide(p, "Tempo de espera do hover (ms)", 0, 600, () => S.HoverDelayMs, v => S.HoverDelayMs = (int)v);
         Check(p, "Expandir ao clicar", () => S.ExpandOnClick, v => S.ExpandOnClick = v);
-        Slide(p, "Recolher automaticamente após (s)", 0.5, 10, () => S.AutoCollapseSeconds, v => S.AutoCollapseSeconds = v, "0.0");
-        Combo(p, "Em aplicativos em tela inteira", new[] { ("Ocultar a ilha", FullscreenMode.Hide), ("Manter visível, sem expansão", FullscreenMode.NoExpand), ("Comportamento padrão", FullscreenMode.Keep) }, () => S.Fullscreen, v => S.Fullscreen = v);
+        Section(p, "Recolher");
+        Combo(p, "Animação ao recolher", new[] { ("Instantânea", CollapseMode.Instant), ("Rápida", CollapseMode.Fast), ("Suave", CollapseMode.Smooth) }, () => S.CollapseSpeed, v => S.CollapseSpeed = v);
+        Slide(p, "Atraso ao tirar o mouse (ms)", 0, 2000, () => S.CollapseDelayMs, v => S.CollapseDelayMs = (int)v);
+        Slide(p, "Recolher por inatividade (s, 0 = nunca)", 0, 30, () => S.IdleCollapseSeconds, v => S.IdleCollapseSeconds = v);
+        Note(p, "O atraso conta a partir do momento em que o mouse sai da ilha. Com 0 ms ela recolhe na hora.");
+
+        Section(p, "Janelas e Tela Cheia");
+        Combo(p, "Em aplicativos em tela inteira", new[] { ("Ocultar", FullscreenMode.Hide), ("Visível, sem expandir", FullscreenMode.NoExpand), ("Normal", FullscreenMode.Keep) }, () => S.Fullscreen, v => S.Fullscreen = v);
 
         Section(p, "Integração com o Sistema");
         Check(p, "Iniciar automaticamente com o Windows", () => S.StartWithWindows, v => S.StartWithWindows = v);
@@ -159,7 +273,7 @@ public sealed class SettingsWindow : Window
         Slide(p, "Pausa longa (min)", 5, 60, () => S.LongBreakMinutes, v => S.LongBreakMinutes = (int)v);
         Slide(p, "Ciclos até a pausa longa", 2, 8, () => S.SessionsBeforeLongBreak, v => S.SessionsBeforeLongBreak = (int)v);
         Check(p, "Avançar fase automaticamente", () => S.AutoStartNextPhase, v => S.AutoStartNextPhase = v);
-        Btn(p, "Restaurar todas as opções", () => { if (MessageBox.Show("Deseja restaurar todas as configurações de fábrica?", "TzIsland", MessageBoxButton.YesNo) == MessageBoxResult.Yes) { Settings.Reset(); Close(); ShowSingle(); } });
+        Btn(p, "Restaurar todas as opções", danger: true, click: () => { if (MessageBox.Show("Deseja restaurar todas as configurações de fábrica?", "TzIsland", MessageBoxButton.YesNo) == MessageBoxResult.Yes) { Settings.Reset(); Close(); ShowSingle(); } });
         return p;
     }
 
@@ -242,7 +356,7 @@ public sealed class SettingsWindow : Window
         Note(p, "Todos os dados de produtividade são armazenados exclusivamente em " + Settings.DataDir);
         Btn(p, "Abrir pasta de dados no Explorador", () => Process.Start("explorer.exe", Settings.DataDir));
         Btn(p, "Limpar histórico do Inbox", () => Hub.Inbox.Clear());
-        Btn(p, "Excluir dados de tarefas, notas e agenda…", () =>
+        Btn(p, "Excluir dados de tarefas, notas e agenda…", danger: true, click: () =>
         {
             if (MessageBox.Show("Deseja apagar permanentemente todas as anotações, tarefas e eventos locais?", "TzIsland", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
             { Settings.WipeData(); MessageBox.Show("Dados removidos com sucesso."); }

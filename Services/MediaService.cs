@@ -16,6 +16,17 @@ public sealed class MediaService
     public MediaPlaybackAutoRepeatMode Repeat = MediaPlaybackAutoRepeatMode.None;
     public event Action? Changed;
 
+    /// <summary>Heurística: miniatura em formato paisagem (vídeo) ou player de vídeo conhecido.</summary>
+    public bool IsVideo
+    {
+        get
+        {
+            if (Cover != null && Cover.PixelHeight > 0 && Cover.PixelWidth / (double)Cover.PixelHeight > 1.3) return true;
+            var a = App.ToLowerInvariant();
+            return a.Contains("vlc") || a.Contains("mpc") || a.Contains("potplayer") || a.Contains("zunevideo") || a.Contains("netflix") || a.Contains("primevideo") || a.Contains("plex");
+        }
+    }
+
     static Dispatcher Ui => Application.Current.Dispatcher;
 
     public async Task StartAsync()

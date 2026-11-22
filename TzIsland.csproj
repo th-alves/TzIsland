@@ -10,7 +10,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>TzIsland</AssemblyName>
     <RootNamespace>TzIsland</RootNamespace>
-    <Version>2.0.0</Version>
+    <Version>2.1.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
@@ -28,6 +28,12 @@
     <!-- WPF + WinForms juntos geram conflitos de nomes: removemos os usings implícitos do WinForms -->
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Inter (OFL): fonte moderna embutida, não depende de nada instalado no Windows -->
+    <Resource Include="Fonts\*.ttf" />
+    <None Include="Fonts\LICENSE-Inter.txt" />
   </ItemGroup>
 
   <ItemGroup>

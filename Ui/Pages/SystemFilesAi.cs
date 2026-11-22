@@ -40,7 +40,7 @@ public sealed class SystemPage : PageBase
         var vrow = K.Cols("auto", "*");
         _mute = K.IconBtn("\uE767", "Silenciar", () => { Svc.Audio.Muted = !Svc.Audio.Muted; SyncVol(); }, 14, 32, 28);
         vrow.Children.Add(_mute); vrow.Children.Add(_vol.At(col: 1).M(6, 0, 4, 0));
-        var vb = new StackPanel(); vb.Children.Add(K.T("Volume do Sistema", 12, K.Fg, true).M(0, 0, 0, 2)); vb.Children.Add(vrow);
+        var vb = new StackPanel(); vb.Children.Add(FK.Header("\uE767", "VOLUME DO SISTEMA").M(0, 0, 0, 6)); vb.Children.Add(vrow);
         right.Children.Add(K.CardBox(vb, 14, new Thickness(12)));
         right.Children.Add(K.Scroll(_displays).M(0, 6, 0, 0));
         ((ScrollViewer)right.Children[1]).MaxHeight = 175;
@@ -183,8 +183,8 @@ public sealed class FilesPage : PageBase
 
     void SyncToggles()
     {
-        _dl.Background = Settings.Current.WatchDownloads ? K.Blue : K.Card;
-        _ss.Background = Settings.Current.WatchScreenshots ? K.Blue : K.Card;
+        _dl.Background = Settings.Current.WatchDownloads ? K.StrokeHi : K.Card;
+        _ss.Background = Settings.Current.WatchScreenshots ? K.StrokeHi : K.Card;
         _dl.ToolTip = "Monitoramento automático da pasta Downloads: " + (Settings.Current.WatchDownloads ? "ativo" : "inativo");
         _ss.ToolTip = "Monitoramento automático da pasta de capturas: " + (Settings.Current.WatchScreenshots ? "ativo" : "inativo");
     }
@@ -226,11 +226,12 @@ public sealed class FilesPage : PageBase
         }
         else thumb = K.Glyph(Directory.Exists(f.Path) ? "\uE8B7" : "\uE8A5", 22, K.Dim);
 
-        var tb = new Border { Width = 60, Height = 50, CornerRadius = new CornerRadius(10), Background = K.CardStrong, ClipToBounds = true, Child = thumb, HorizontalAlignment = HorizontalAlignment.Center };
+        var tb = new Border { Width = 60, Height = 50, CornerRadius = new CornerRadius(10), Background = K.CardStrong, Child = thumb, HorizontalAlignment = HorizontalAlignment.Center };
+        if (thumb is FrameworkElement thumbFe) K.RoundClip(thumbFe, 9);
         s.Children.Add(tb);
         var name = K.T(f.Name, 10, K.Fg); name.TextAlignment = TextAlignment.Center; name.Margin = new Thickness(0, 3, 0, 0);
         s.Children.Add(name);
-        if (f.Auto) { var o = K.T(f.Origin == "Downloads" ? "↓ novo" : "▣ nova", 9, K.Blue); o.HorizontalAlignment = HorizontalAlignment.Center; s.Children.Add(o); }
+        if (f.Auto) { var o = K.T(f.Origin == "Downloads" ? "↓ novo" : "▣ nova", 9, K.Sky); o.HorizontalAlignment = HorizontalAlignment.Center; s.Children.Add(o); }
 
         var btn = new Button { Content = s, Margin = new Thickness(0, 0, 6, 6), Padding = new Thickness(4), Background = K.Clear, Tag = new CornerRadius(12), ToolTip = f.Path };
         btn.Style = K.Ghost;
@@ -280,7 +281,7 @@ public sealed class AiPage : PageBase
     {
         AgentState.Working => ("Em execução", K.Green),
         AgentState.NeedsInput => ("Aguardando você", K.Orange),
-        AgentState.Done => ("Concluído", K.Blue),
+        AgentState.Done => ("Concluído", K.Sky),
         AgentState.Idle => ("Disponível", K.Dim),
         AgentState.Unavailable => ("Indisponível", K.Red),
         _ => ("Offline", K.Faint)
@@ -293,8 +294,8 @@ public sealed class AiPage : PageBase
         foreach (var a in Svc.Agents.Statuses)
         {
             var g = K.Cols("40", "*", "auto");
-            var badge = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(17), Background = K.Hex(a.ColorHex), VerticalAlignment = VerticalAlignment.Top };
-            badge.Child = K.T(a.Letter, 14, Brushes.Black, true); ((TextBlock)badge.Child).HorizontalAlignment = HorizontalAlignment.Center; ((TextBlock)badge.Child).VerticalAlignment = VerticalAlignment.Center;
+            var badge = Brand.BadgeFor(a.Name, a.Letter, a.ColorHex, 34);
+            badge.VerticalAlignment = VerticalAlignment.Top;
             g.Children.Add(badge);
 
             var s = new StackPanel { Margin = new Thickness(0, 0, 8, 0) };
@@ -312,8 +313,8 @@ public sealed class AiPage : PageBase
                     Minimum = 0,
                     Maximum = 100,
                     Value = a.Progress.Value,
-                    Foreground = new LinearGradientBrush(Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0x5E, 0x5C, 0xE6), 0),
-                    Background = K.CardStrong,
+                    Foreground = K.AccentGradient,
+                    Background = K.Track,
                     BorderThickness = new Thickness(0),
                     Margin = new Thickness(0, 4, 0, 0)
                 };
@@ -362,12 +363,13 @@ public sealed class MirrorPage : PageBase
     public MirrorPage()
     {
         var g = K.Cols("*", "230");
-        var frame = new Border { CornerRadius = new CornerRadius(16), Background = new SolidColorBrush(Color.FromRgb(10, 10, 14)), ClipToBounds = true, Child = new Grid { Children = { _view, _status } }, Margin = new Thickness(0, 0, 12, 0) };
+        var mirrorInner = K.RoundClip(new Grid { Children = { _view, _status } }, 15);
+        var frame = new Border { CornerRadius = new CornerRadius(16), Background = K.Surface, BorderBrush = K.Stroke, BorderThickness = new Thickness(1), Child = mirrorInner, Margin = new Thickness(0, 0, 12, 0) };
         _status.HorizontalAlignment = HorizontalAlignment.Center; _status.VerticalAlignment = VerticalAlignment.Center;
         g.Children.Add(frame);
 
         var s = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        s.Children.Add(K.T("Espelho de Câmera", 16, K.Fg, true));
+        s.Children.Add(FK.Header("\uE722", "ESPELHO DE CÂMERA"));
         var nav = K.Cols("auto", "*", "auto"); nav.Margin = new Thickness(0, 8, 0, 8);
         nav.Children.Add(K.IconBtn("\uE76B", "Câmera anterior", () => Cycle(-1), 12, 28, 28));
         _cam.TextAlignment = TextAlignment.Center; nav.Children.Add(_cam.At(col: 1).Vc());
@@ -403,8 +405,8 @@ public sealed class MirrorPage : PageBase
     void OnState()
     {
         bool on = Svc.Camera.IsOn;
-        _toggle.Content = K.T(on ? "Desativar câmera" : "Ativar câmera", 12, K.Fg, true);
-        _toggle.Background = on ? K.Red : K.Blue;
+        _toggle.Content = K.T(on ? "Desativar câmera" : "Ativar câmera", 12, on ? K.Fg : K.Ink, true);
+        _toggle.Background = on ? K.Red : K.White;
         _status.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
         if (!on) _view.Source = null;
         IslandWindow.Instance?.RefreshMini();

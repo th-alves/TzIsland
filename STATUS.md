@@ -40,6 +40,51 @@ Todos os itens abaixo precisam ser testados por você no primeiro `dotnet run`; 
 - 🟡 Ditado: reconhecimento do Windows (exige "reconhecimento de voz online" ativo); texto vai ao clipboard/colar na janela ativa
 - ✅ Widgets: clima (Open-Meteo), previsão de 3 dias, bateria, música
 - ⛔ Tela de bloqueio: sem API pública; widgets ficam dentro da ilha
+## Etapa 5 — Redesign "Foco" (estilo MacBook / empresarial)
+- 🟡 Página **Foco** (nova, 3º ícone da barra): cartões Pomodoro | Timer | Cronômetro + Beber água, como na referência
+- ✅ Pomodoro, Timer e Cronômetro **independentes** (rodam juntos); relógio por timestamp, sem deriva
+- ✅ Pílula recolhida mostra o último iniciado: ícone coral | rótulo | tempo em coral (+N se houver outros rodando); alarga com overshoot
+- ✅ Água: contador diário persistente (water.json), toque nas gotas, lembretes opcionais (08h–22h) pela ilha
+- ✅ Animações: entrada em cascata, molas, anel com brilho, onda sonora, chips deslizantes, switch elástico, lente da barra com squash & stretch
+- 🟡 Padrão novo: 760×356, visual Solid Black (use "Restaurar layout padrão" nas configurações para aplicar)
+- ⚠️ Compilação WPF não executada neste ambiente: só validação de sintaxe com Roslyn
+## Etapa 6 — Estilo Foco em toda a ilha + correção do ghosting
+- ✅ **Bug de ghosting corrigido:** `K.FadeIn` deixava a animação de opacidade "presa" em 1 (HoldEnd), e a transição de abas não conseguia apagar a página que saía. Agora a animação é liberada ao terminar e a troca é em sequência (a antiga sai, depois a nova entra; nunca duas visíveis)
+- ✅ Tokens globais: cartões índigo + borda fina, acento coral (K.Blue agora é coral), texto Dim/Faint arroxeado, campos de texto e sliders no mesmo padrão
+- ✅ Botão primário = pílula branca com texto escuro (como o "Iniciar")
+- ✅ Início, Mídia e Inbox refeitos em cartões com cabeçalho mono + ícone coral; Produtividade com abas em chips deslizantes
+- ✅ Sistema, Arquivos, IA, Espelho e Ditado herdam os tokens novos
+## Etapa 7 — Configurações, Anotações, LED e recolher
+- ✅ Janela de Configurações refeita: barra lateral, cartões índigo, switches/sliders coral, chips de escolha, barra de título escura
+- ✅ Anotações: lista em cartões (título, prévia, data) com marcador coral, editor maior e rodapé limpo
+- ✅ Pílula recolhida: só um LED pulsando (laranja = ocioso, verde = ativo: foco rodando, mídia tocando, agente de IA, câmera, ditado ou microfone em uso)
+- ✅ Recolher: causa da demora corrigida (espera dupla de 1,6 s). Novas opções em Comportamento: animação (instantânea/rápida/suave), atraso ao tirar o mouse (ms) e recolher por inatividade
+- 🟡 Os indicadores de microfone/câmera da pílula foram substituídos pelo LED verde; o detalhe continua na página Sistema
+- 🟡 Largura recolhida padrão agora 150 (use "Restaurar layout padrão")
+## Etapa 8 — LED à direita, ícones reais, contador e scroll
+- ✅ LED agora no lado direito da pill; brilho por gradiente radial + fade cruzado laranja/verde (o DropShadowEffect reprocessado a cada frame era a causa do engasgo)
+- ✅ Contador do Inbox: número centralizado, anel preto, posição fixa no canto do ícone e "pulo" elástico ao mudar
+- ✅ Ícones reais (Ui/BrandIcons.cs): Claude, OpenAI/ChatGPT, Codex, Cursor, Gemini, Ollama, LM Studio — usados nos agentes de IA, no banner de notificação e nos grupos do Inbox; ícone "faísca" próprio na barra de navegação (no lugar do texto "AI")
+- ✅ Scroll reescrito (alvo acumulado + suavização por frame): serve para todas as páginas e para as Configurações
+- ℹ️ Logos: vetores do pacote aberto @lobehub/icons-static-svg (MIT); as marcas pertencem aos respectivos donos e aparecem só para identificar o app/agente
+## Etapa 9 — Motion design e bordas
+- ✅ Bordas que vazavam: `ClipToBounds` em Border com CornerRadius recorta em retângulo. Novo `K.RoundClip` (recorte arredondado) aplicado no cartão de Mídia, capas, miniaturas de arquivos e espelho da câmera
+- ✅ Expandir/recolher reescrito: largura, altura e raio em molas diferentes (morph), conteúdo entra depois com escala + subida; ao recolher o conteúdo some primeiro e só depois a forma encolhe
+- ✅ Causa do engasgo: BlurEffect no painel inteiro a cada frame (renderização por software) — removido; região da janela só é recriada quando muda
+- ✅ Camada `Motion` (Core/Motion.cs): presets de mola, Reveal/RevealAll/RevealPage; menu inferior e cartões de todas as páginas entram em cascata (também ao trocar de aba e de sub-aba)
+## Etapa 10 — Premium Night Black (v2.1)
+- ✅ **Clássico colado na borda:** `Floating` estava fixo em `true` (o Clássico nunca era aplicado). Agora segue `S.Style`; no Clássico a ilha sobe até `y = 0`, sem margem, com a silhueta de notch (`NotchGeo`: topo reto, ombros côncavos, base arredondada) e borda só nas laterais/base
+- ✅ Paleta global neutra: preto puro, cartões #141416, bordas 1 px, acento monocromático (branco). Cada seção usa no máximo uma cor (violeta na mídia, azul na água, verde nos switches). Tokens renomeados: `Coral`→`Accent`, `CoralGradient`→`AccentGradient`, `Blue`→`Sky`
+- ✅ Fonte **Inter** embutida (pasta `Fonts/`, licença OFL) com algarismos tabulares nos números; rótulos em caixa alta espaçada (`K.Cap`/`K.Spaced`); se a fonte falhar, cai para Segoe UI Variable
+- ✅ **Timers** refeito no layout da referência: Pomodoro (anel branco), Temporizador (ondas + chips + Iniciar/Cancelar), Cronômetro (lista de voltas rolável), Beber água (gotas + switch verde)
+- ✅ **Mídia** no estilo "Now Playing": capa arredondada, origem + equalizador, barra violeta com bolinha, três botões
+- ✅ **Recolhida com mídia tocando:** só o ícone (música/vídeo) à esquerda e o espectro real do áudio à direita (`SpectrumService`: loopback WASAPI + FFT; só captura quando há consumidor)
+- ✅ **Notas** no estilo da referência (lista + editor monoespaçado, lixeira vermelha, "salvo HH:mm")
+- ✅ **Ambientação (nova):** 8 sons em camadas (chuva, floresta, cafeteria, escritório, lo-fi, fogueira, riacho, ondas), volume por som, volume geral, desligar sozinho em 15/30/60 min (fade de ~12 s) e "Parar tudo"
+- ✅ **Início** no layout "Minimal": Sistema (CPU/RAM/disco), Relógio, Tocando agora, Bateria, Som e luz, Clima e Agenda (sem o widget de iniciar apps); role para ver a 3ª linha
+- ✅ Barra de seções: lente em mola mais macia, ícones que acendem/crescem conforme a lente passa, página nova entra pela direção certa
+- ℹ️ Os sons da Ambientação são **sintetizados** (sem arquivos nem direitos autorais). Para usar gravações reais, coloque `rain.mp3`, `forest.mp3`, `cafe.mp3`, `office.mp3`, `lofi.mp3`, `fire.mp3`, `stream.mp3` ou `waves.mp3` em `Sounds\` ao lado do app (ou em `%AppData%\TzIsland\Sounds`)
+- 🟡 Validado com compilação de tipos fora do Windows e teste numérico do motor de áudio; **não** foi executado em Windows: confira visualmente e me diga o que ajustar
 ## Pendente
 - ⏳ Empacotamento MSIX (para notificações do Windows)
 - ⏳ Reordenar/ocultar ícones da barra inferior por arrastar

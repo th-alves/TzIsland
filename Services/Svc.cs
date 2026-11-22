@@ -13,11 +13,14 @@ public static class Svc
     public static readonly WeatherService Weather = new();
     public static readonly CalendarService Calendar = new();
     public static readonly FocusService Focus = new();
+    public static readonly WaterTracker Water = new();
     public static readonly NotesStore Notes = new();
     public static readonly TasksStore Tasks = new();
     public static readonly CameraService Camera = new();
     public static readonly DictationService Dictation = new();
     public static readonly AgentMonitor Agents = new();
+    public static readonly SpectrumService Spectrum = new();
+    public static readonly AmbienceService Ambience = new();
 
     public static void Start()
     {
@@ -27,6 +30,7 @@ public static class Svc
         Files.Start();
         Weather.Start();
         Calendar.Start();
+        Water.Start();
         if (s.IsOn("media")) _ = Media.StartAsync();
         if (s.IsOn("inbox")) _ = WinNotifs.StartAsync();
         if (s.IsOn("ai")) Agents.Start();
@@ -34,6 +38,6 @@ public static class Svc
 
     public static async Task StopAsync()
     {
-        try { await Camera.StopAsync(); await Dictation.StopAsync(); } catch { }
+        try { Ambience.Shutdown(); await Camera.StopAsync(); await Dictation.StopAsync(); } catch { }
     }
 }
