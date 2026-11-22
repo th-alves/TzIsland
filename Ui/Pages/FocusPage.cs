@@ -70,7 +70,7 @@ public sealed class FocusPage : PageBase
         // ======== POMODORO ========
         _pPlay = Circle("\uE769", "Iniciar / pausar", () => F.PomoToggle(), 34, false, 12);
         var pTop = K.Cols("*", "auto");
-        pTop.Children.Add(FK.Header("\uE916", "Pomodoro"));
+        pTop.Children.Add(FK.Header(Ico.Make("timer", 12, K.Label, 1.9), "Pomodoro"));
         pTop.Children.Add(_pDone.At(col: 1).Vc());
 
         var ringHost = new Grid { Background = Brushes.Transparent, Cursor = Cursors.Hand, ToolTip = "Clique para iniciar / pausar" };
@@ -87,7 +87,7 @@ public sealed class FocusPage : PageBase
         pCtl.Children.Add(Circle("\uE72C", "Reiniciar", () => F.PomoReset(), 34, false, 12).M(8, 0, 0, 0));
         pCtl.Children.Add(Circle("\uE893", "Pular fase", () => F.PomoSkip(), 34, false, 12).M(8, 0, 0, 0));
         var pFootRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 9, 0, 0) };
-        pFootRow.Children.Add(K.Glyph("\uE8EF", 10, K.Muted).M(0, 0, 6, 0));
+        pFootRow.Children.Add(Ico.Make("clock", 11, K.Muted, 1.9).M(0, 0, 6, 0));
         pFootRow.Children.Add(_pFoot);
         var pGrid = K.Rows("auto", "*", "auto", "auto");
         pGrid.Children.Add(pTop);
@@ -98,7 +98,7 @@ public sealed class FocusPage : PageBase
 
         // ======== TIMER ========
         var tGrid = K.Rows("auto", "*", "auto", "auto", "auto");
-        tGrid.Children.Add(FK.Header("\uE823", "Temporizador"));
+        tGrid.Children.Add(FK.Header(Ico.Make("hourglass", 12, K.Label, 1.9), "Temporizador"));
         _tTime.HorizontalAlignment = HorizontalAlignment.Center;
         var tDigits = new Border { Background = Brushes.Transparent, Cursor = Cursors.SizeNS, ToolTip = "Role o mouse para ajustar os minutos", Child = _tTime, VerticalAlignment = VerticalAlignment.Center };
         tDigits.PreviewMouseWheel += (_, e) =>
@@ -127,7 +127,7 @@ public sealed class FocusPage : PageBase
 
         // ======== CRONÔMETRO ========
         var sGrid = K.Rows("auto", "auto", "*");
-        sGrid.Children.Add(FK.Header("\uE916", "Cronômetro"));
+        sGrid.Children.Add(FK.Header(Ico.Make("clock", 12, K.Label, 1.9), "Cronômetro"));
         var sBody = K.Cols("*", "auto");
         sBody.Margin = new Thickness(0, 6, 0, 0);
         _sTime.VerticalAlignment = VerticalAlignment.Center;
@@ -232,7 +232,7 @@ public sealed class FocusPage : PageBase
         for (int i = 0; i < goal; i++)
         {
             int n = i + 1;
-            var d = new DropGlyph { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Width = 14, Height = 20 };
+            var d = new DropGlyph { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch, Width = double.NaN, Height = double.NaN, VisualScale = 1.25 };
             d.Clicked = () => W.Set(W.Glasses == n ? n - 1 : n);
             _drops.Add(d); _dropsHost.Children.Add(d);
         }

@@ -12,11 +12,11 @@ using System.Reflection;
 
 [assembly: System.Reflection.AssemblyCompanyAttribute("TzIsland")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
-[assembly: System.Reflection.AssemblyFileVersionAttribute("2.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("2.1.0")]
+[assembly: System.Reflection.AssemblyFileVersionAttribute("2.2.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("2.2.0")]
 [assembly: System.Reflection.AssemblyProductAttribute("TzIsland")]
 [assembly: System.Reflection.AssemblyTitleAttribute("TzIsland")]
-[assembly: System.Reflection.AssemblyVersionAttribute("2.1.0.0")]
+[assembly: System.Reflection.AssemblyVersionAttribute("2.2.0.0")]
 [assembly: System.Runtime.Versioning.TargetPlatformAttribute("Windows10.0.19041.0")]
 [assembly: System.Runtime.Versioning.SupportedOSPlatformAttribute("Windows10.0.17763.0")]
 

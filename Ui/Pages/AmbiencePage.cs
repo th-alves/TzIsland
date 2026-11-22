@@ -105,7 +105,7 @@ public sealed class AmbiencePage : PageBase
 
         // ---- Painel MIX
         var mix = new StackPanel();
-        mix.Children.Add(FK.Header("\\uE767", "Mix"));
+        mix.Children.Add(FK.Header(Ico.Make("volume", 12, K.Label, 1.9), "Mix"));
         var vrow = K.Cols("*", "auto"); vrow.Margin = new Thickness(0, 10, 0, 0);
         vrow.Children.Add(K.T("Volume", 12, K.Fg, true)); vrow.Children.Add(_volNum.At(col: 1));
         mix.Children.Add(vrow);
@@ -123,7 +123,7 @@ public sealed class AmbiencePage : PageBase
 
         _stop = new Button { Style = K.Fill, Height = 34, Background = K.Hex("#1FFF453A"), Tag = new CornerRadius(12), Margin = new Thickness(0, 8, 0, 0) };
         var sp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-        sp.Children.Add(K.Glyph("\\uE71A", 10, K.Red).M(0, 0, 8, 0)); sp.Children.Add(_stopText.Vc());
+        sp.Children.Add(K.Glyph("\uE71A", 10, K.Red).M(0, 0, 8, 0)); sp.Children.Add(_stopText.Vc());
         _stop.Content = sp;
         _stop.Click += (_, _) => A.StopAll();
         mix.Children.Add(_stop);

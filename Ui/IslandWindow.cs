@@ -74,11 +74,16 @@ public sealed class IslandWindow : Window
     }
 
     readonly Led _ledIdle = new(Color.FromRgb(0xFF, 0x9F, 0x0A)), _ledActive = new(Color.FromRgb(0x30, 0xD1, 0x58));
-    // Recolhida com mídia tocando: só o ícone (música/vídeo) à esquerda e o espectro de áudio à direita.
-    readonly Grid _miniMedia = new() { Opacity = 0, IsHitTestVisible = false };
-    readonly Border _miniIconHost = new() { HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 0, 0) };
-    readonly EqBars _miniEq = new(5) { Fill = Brushes.White, BarWidth = 2.6, Gap = 2.2, Height = 15, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
-    bool? _miniMediaOn; bool _miniVideo;
+    // Recolhida com atividade ao vivo: mídia (ícone + espectro) e/ou timer em andamento (ícone + tempo).
+    enum Live { None, Media, Timer, Both }
+    readonly Grid _miniLive = new() { Opacity = 0, IsHitTestVisible = false };
+    readonly StackPanel _liveL = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 0, 0) };
+    readonly StackPanel _liveR = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
+    readonly Border _mIcon = new() { VerticalAlignment = VerticalAlignment.Center };
+    readonly Border _tIcon = new() { VerticalAlignment = VerticalAlignment.Center };
+    readonly EqBars _miniEq = new(5) { Fill = Brushes.White, BarWidth = 2.6, Gap = 2.2, Height = 15, VerticalAlignment = VerticalAlignment.Center };
+    readonly TextBlock _tText = K.Num("", 12.5, Brushes.White), _tExtra = K.T("", 10, K.Muted);
+    Live _live = Live.None, _liveShown = Live.None; bool _liveVideo, _liveBreak; LiveKind _liveKind;
     readonly Grid _ledHost = new() { Width = 26, Height = 26, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0), IsHitTestVisible = false };
     bool? _ledOn;
     bool _ledPulsing;
@@ -192,8 +197,9 @@ public sealed class IslandWindow : Window
         _ledActive.Opacity = 0;
         _ledHost.Children.Add(_ledIdle); _ledHost.Children.Add(_ledActive);
         _mini.Children.Add(_ledHost);
-        _miniMedia.Children.Add(_miniIconHost); _miniMedia.Children.Add(_miniEq);
-        _mini.Children.Add(_miniMedia);
+        _tText.VerticalAlignment = VerticalAlignment.Center; _tExtra.VerticalAlignment = VerticalAlignment.Center; _tExtra.Margin = new Thickness(4, 1, 0, 0);
+        _miniLive.Children.Add(_liveL); _miniLive.Children.Add(_liveR);
+        _mini.Children.Add(_miniLive);
 
         // Banner: [glowing badge] [title & text]
         _banner.HorizontalAlignment = HorizontalAlignment.Center; _banner.VerticalAlignment = VerticalAlignment.Top; _banner.Opacity = 0;
@@ -398,16 +404,27 @@ public sealed class IslandWindow : Window
         }
     }
 
+    // Ícones de linha da barra (mesmo traço fino em todos). Cada id vem de Modules.All.
+    static readonly Dictionary<string, string> NavIcon = new()
+    {
+        ["home"] = Ico.Path("home"), ["media"] = Ico.Path("music"), ["focus"] = Ico.Path("timer"), ["ambience"] = Ico.Path("waves"),
+        ["inbox"] = Ico.Path("mail"), ["productivity"] = Ico.Path("pen"), ["system"] = Ico.Path("monitor"), ["files"] = Ico.Path("folder"),
+        ["mirror"] = Ico.Path("camera"), ["dictation"] = Ico.Path("mic")
+    };
+
     void BuildNav()
     {
         _nav.Children.Clear(); _navBtns.Clear(); _navBrush.Clear(); _navScale.Clear(); _navCenter.Clear();
         foreach (var m in Modules.All.Where(m => S.IsOn(m.Id)))
         {
             var id = m.Id;
-            var b = K.IconBtn(m.Glyph, m.Title, () => ShowPage(id), 15, 44, 32);
+            // Botão do MESMO tamanho/raio da lente: o realce de hover coincide com ela e não vaza nos cantos.
+            var b = K.IconBtn(m.Glyph, m.Title, () => ShowPage(id), 15, LensW, LensH);
+            b.Tag = new CornerRadius(9); b.Margin = new Thickness(3, 0, 3, 0);
             var ink = new SolidColorBrush(((SolidColorBrush)K.Label).Color);
             var sc = new ScaleTransform(1, 1);
             if (id == "ai") { var sp = Brand.Sparkle(17, ink); sp.Fill = ink; b.Content = sp; }   // faísca de IA no lugar do texto "AI"
+            else if (NavIcon.TryGetValue(id, out var ico)) b.Content = new IconHost(ico, 17, ink, 1.7);
             else if (b.Content is TextBlock tb) tb.Foreground = ink;
             if (b.Content is FrameworkElement ce) { ce.RenderTransformOrigin = new Point(0.5, 0.5); ce.RenderTransform = sc; }
             _navBrush[id] = ink; _navScale[id] = sc;
@@ -421,7 +438,10 @@ public sealed class IslandWindow : Window
             else _nav.Children.Add(b);
         }
         _nav.Children.Add(new Border { Width = 1, Height = 16, Background = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)), Margin = new Thickness(6, 0, 6, 0) });
-        _nav.Children.Add(K.IconBtn("\uE713", "Configurações", OpenSettings, 14, 44, 32, K.Label));
+        var gear = K.IconBtn("\uE713", "Configurações", OpenSettings, 14, LensW, LensH, K.Label);
+        gear.Tag = new CornerRadius(9); gear.Margin = new Thickness(3, 0, 3, 0);
+        gear.Content = Ico.Make("settings", 17, K.Label, 1.7);
+        _nav.Children.Add(gear);
         if (_pageId == null || !_navBtns.ContainsKey(_pageId)) _pageId = _navBtns.Keys.FirstOrDefault();
         UpdateBadge();
         Dispatcher.InvokeAsync(MoveDot, DispatcherPriority.Loaded);
@@ -524,7 +544,7 @@ public sealed class IslandWindow : Window
     }
 
     // ---------------- State transitions ----------------
-    double CollapsedWidthNow => S.CollapsedWidth;
+    double CollapsedWidthNow => S.CollapsedWidth + (_live == Live.Both ? 84 : 0);
 
     (double w, double h, double r) Target(St s) => s switch
     {
@@ -562,7 +582,7 @@ public sealed class IslandWindow : Window
             }
             MoveDot();
         }
-        _miniEq.Running = _miniMediaOn == true && s == St.Collapsed;
+        _miniEq.Running = (_live == Live.Media || _live == Live.Both) && s == St.Collapsed;
 
         if (anim)
         {
@@ -803,29 +823,77 @@ public sealed class IslandWindow : Window
         return false;
     }
 
-    public void RefreshMini() { SetLed(IsActive()); SetMiniMedia(MediaPlaying()); }
-
-    static bool MediaPlaying() => S.IsOn("media") && Svc.Media.HasSession && Svc.Media.Playing && Svc.Media.Title.Length > 0;
-
-    void SetMiniMedia(bool on)
+    public void RefreshMini()
     {
-        bool video = Svc.Media.IsVideo;
-        if (on && (_miniIconHost.Child == null || video != _miniVideo))
+        // Os eventos de mídia chegam de tarefas assíncronas sem "await": uma exceção aqui sumiria sem deixar rastro. Por isso o log.
+        try { SetLed(IsActive()); UpdateLive(); }
+        catch (Exception e) { Log.Write(e); }
+    }
+
+    static bool MediaPlaying() => S.IsOn("media") && Svc.Media.HasSession && Svc.Media.Playing && (Svc.Media.Title.Length > 0 || Svc.Media.App.Length > 0);
+
+    /// <summary>Decide o que a ilha recolhida mostra (mídia, timer ou os dois) e reorganiza a faixa quando isso muda.</summary>
+    void UpdateLive()
+    {
+        bool media = MediaPlaying();
+        var info = S.IsOn("focus") ? Svc.Focus.Primary() : null;
+        bool timer = info != null;
+        var mode = media && timer ? Live.Both : media ? Live.Media : timer ? Live.Timer : Live.None;
+
+        if (media)
         {
-            _miniVideo = video;
-            _miniIconHost.Child = Ico.Make(video ? "video" : "music", 16, Brushes.White, 1.8);
+            bool video = Svc.Media.IsVideo;
+            if (_mIcon.Child == null || video != _liveVideo) { _liveVideo = video; _mIcon.Child = Ico.Make(video ? "video" : "music", 16, Brushes.White, 1.8); }
         }
-        _miniEq.Playing = on;
-        if (_miniMediaOn != on)
+        _miniEq.Playing = media;
+        if (timer)
         {
-            bool first = _miniMediaOn == null;
-            _miniMediaOn = on;
-            double ms = first || !S.Animations ? 1 : 320;
+            bool brk = info!.Kind == LiveKind.Pomodoro && Svc.Focus.Pomo.Phase != FocusPhase.Focus;
+            if (_tIcon.Child == null || info.Kind != _liveKind || brk != _liveBreak)
+            {
+                _liveKind = info.Kind; _liveBreak = brk;
+                _tIcon.Child = Ico.Make(info.Kind == LiveKind.Timer ? "hourglass" : "timer", 15, brk ? K.Green : Brushes.White, 1.8);
+            }
+            if (_tText.Text != info.Time) _tText.Text = info.Time;
+            string ex = info.Extra > 0 ? "+" + info.Extra : "";
+            if (_tExtra.Text != ex) _tExtra.Text = ex;
+        }
+
+        if (mode != _live)
+        {
+            var prev = _live; _live = mode;
+            Log.Write($"ilha recolhida: {prev} -> {mode} (mídia: sessão={Svc.Media.HasSession} tocando={Svc.Media.Playing} título=\"{Svc.Media.Title}\" app=\"{Svc.Media.App}\"; timer={(info == null ? "nenhum" : info.Kind.ToString())})");
+            LayoutLive(mode);
+            bool first = _liveShown == Live.None && prev == Live.None && _ledOn == null;
+            double ms = first || !S.Animations ? 1 : 300;
             var ease = new SineEase { EasingMode = EasingMode.EaseInOut };
-            _miniMedia.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(on ? 1 : 0, TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease });
-            _ledHost.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(on ? 0 : 1, TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease });
+            if (prev == Live.None || mode == Live.None)
+            {
+                _miniLive.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(mode == Live.None ? 0 : 1, TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease });
+                _ledHost.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(mode == Live.None ? 1 : 0, TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease });
+            }
+            else   // trocou de combinação: a faixa some e volta já reorganizada
+                _miniLive.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease });
+            _liveShown = mode;
+            if (_st == St.Collapsed)
+            {
+                var (w, _, _) = Target(St.Collapsed);
+                if (S.Animations) _w.To(w, 0, 380, 24); else _w.Snap(w);
+                _loop.Kick();
+            }
         }
-        _miniEq.Running = on && _st == St.Collapsed;
+        _miniEq.Running = media && _st == St.Collapsed;
+    }
+
+    void LayoutLive(Live m)
+    {
+        _liveL.Children.Clear(); _liveR.Children.Clear();
+        bool both = m == Live.Both;
+        _tText.Margin = new Thickness(both || m == Live.Timer ? 7 : 0, 0, 0, 0);
+        _miniEq.Margin = new Thickness(both ? 8 : 0, 0, 0, 0);
+        if (m == Live.Media) { _liveL.Children.Add(_mIcon); _liveR.Children.Add(_miniEq); }
+        else if (m == Live.Timer) { _liveL.Children.Add(_tIcon); _liveR.Children.Add(_tText); _liveR.Children.Add(_tExtra); _tText.Margin = new Thickness(0); }
+        else if (both) { _liveL.Children.Add(_tIcon); _liveL.Children.Add(_tText); _liveL.Children.Add(_tExtra); _liveR.Children.Add(_mIcon); _liveR.Children.Add(_miniEq); }
     }
 
     void SetLed(bool active)

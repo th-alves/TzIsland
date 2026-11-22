@@ -870,13 +870,13 @@
     "C:\\Users\\scarl\\.nuget\\packages\\": {}
   },
   "project": {
-    "version": "2.1.0",
+    "version": "2.2.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\scarl\\Downloads\\TzIsland-v2.1\\TzIsland.csproj",
+      "projectUniqueName": "C:\\Users\\scarl\\Downloads\\TzIsland-v2.2\\TzIsland.csproj",
       "projectName": "TzIsland",
-      "projectPath": "C:\\Users\\scarl\\Downloads\\TzIsland-v2.1\\TzIsland.csproj",
+      "projectPath": "C:\\Users\\scarl\\Downloads\\TzIsland-v2.2\\TzIsland.csproj",
       "packagesPath": "C:\\Users\\scarl\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\scarl\\Downloads\\TzIsland-v2.1\\obj\\",
+      "outputPath": "C:\\Users\\scarl\\Downloads\\TzIsland-v2.2\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\scarl\\AppData\\Roaming\\NuGet\\NuGet.Config"

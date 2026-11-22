@@ -20,6 +20,7 @@ public static class Svc
     public static readonly DictationService Dictation = new();
     public static readonly AgentMonitor Agents = new();
     public static readonly SpectrumService Spectrum = new();
+    public static readonly NetworkService Network = new();
     public static readonly AmbienceService Ambience = new();
 
     public static void Start()

@@ -189,6 +189,8 @@ public sealed class DropGlyph : FrameworkElement
     readonly MotionLoop _loop;
     public Brush Tint { get; set; } = K.Sky;
     public Action? Clicked { get; set; }
+    /// <summary>Escala do desenho da gota (0 = automática pelo tamanho do elemento). A área de clique é sempre o elemento inteiro.</summary>
+    public double VisualScale { get; set; }
 
     public DropGlyph()
     {
@@ -225,7 +227,10 @@ public sealed class DropGlyph : FrameworkElement
 
     protected override void OnRender(DrawingContext dc)
     {
-        double sc = Math.Min(ActualWidth / 12.0, ActualHeight / 16.0) * Math.Max(0.1, _pop.Value);
+        // retângulo invisível: sem ele o WPF só detecta o clique nos pixels desenhados (a "bordinha" da gota)
+        dc.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, ActualWidth, ActualHeight));
+        double baseSc = VisualScale > 0 ? VisualScale : Math.Min(ActualWidth / 12.0, ActualHeight / 16.0);
+        double sc = baseSc * Math.Max(0.1, _pop.Value);
         dc.PushTransform(new TranslateTransform(ActualWidth / 2, ActualHeight / 2));
         dc.PushTransform(new ScaleTransform(sc, sc));
         dc.PushTransform(new TranslateTransform(-6, -8));
@@ -294,8 +299,10 @@ public sealed class SwitchToggle : FrameworkElement
 /// <summary>Chips de seleção com um destaque branco que desliza (e esmaga/estica) entre as opções.</summary>
 public sealed class ChipRow : Grid
 {
-    readonly List<(Border box, TextBlock text, SolidColorBrush fg)> _chips = new();
-    readonly Border _hl = new() { Background = K.White, CornerRadius = new CornerRadius(14), HorizontalAlignment = HorizontalAlignment.Left, Height = 28, IsHitTestVisible = false };
+    // Camadas (de baixo para cima): pílulas escuras -> lente branca que desliza -> textos (que recebem o clique).
+    // O texto fica ACIMA da lente e muda de cor conforme a lente passa por ele, igual à barra de seções.
+    readonly List<(Border hit, SolidColorBrush fg)> _chips = new();
+    readonly Border _hl = new() { Background = K.White, CornerRadius = new CornerRadius(14), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Height = 28, IsHitTestVisible = false };
     readonly Spring _x = new(0), _o = new(0);
     readonly MotionLoop _loop;
     readonly TranslateTransform _tt = new();
@@ -307,27 +314,37 @@ public sealed class ChipRow : Grid
     {
         _w = chipWidth; _gap = gap;
         Height = 28; HorizontalAlignment = HorizontalAlignment.Center;
-        _hl.Width = chipWidth; _hl.RenderTransform = _tt; _hl.Opacity = 0;
-        Children.Add(_hl);
-        var row = new StackPanel { Orientation = Orientation.Horizontal };
-        int i = 0;
-        foreach (var l in labels)
-        {
-            int idx = i++;
-            var fg = new SolidColorBrush(((SolidColorBrush)K.Label).Color);
-            var tb = K.T(l, 12, fg, true); tb.FontFamily = K.FontMedium; tb.TextTrimming = TextTrimming.None;
-            tb.HorizontalAlignment = HorizontalAlignment.Center; tb.VerticalAlignment = VerticalAlignment.Center;
-            var box = new Border
+        var labs = labels.ToList();
+
+        var baseRow = new StackPanel { Orientation = Orientation.Horizontal, IsHitTestVisible = false };
+        for (int i = 0; i < labs.Count; i++)
+            baseRow.Children.Add(new Border
             {
                 Width = chipWidth, Height = 28, CornerRadius = new CornerRadius(14), Background = K.Card,
-                BorderBrush = K.Stroke, BorderThickness = new Thickness(1), Cursor = Cursors.Hand, Child = tb
+                BorderBrush = K.Stroke, BorderThickness = new Thickness(1), Margin = new Thickness(i == 0 ? 0 : gap, 0, 0, 0)
+            });
+        Children.Add(baseRow);
+
+        _hl.Width = chipWidth; _hl.RenderTransform = _tt; _hl.Opacity = 0;
+        Children.Add(_hl);
+
+        var textRow = new StackPanel { Orientation = Orientation.Horizontal };
+        for (int i = 0; i < labs.Count; i++)
+        {
+            int idx = i;
+            var fg = new SolidColorBrush(((SolidColorBrush)K.Label).Color);
+            var tb = K.T(labs[i], 12, fg, true); tb.FontFamily = K.FontMedium; tb.TextTrimming = TextTrimming.None;
+            tb.HorizontalAlignment = HorizontalAlignment.Center; tb.VerticalAlignment = VerticalAlignment.Center;
+            var hit = new Border
+            {
+                Width = chipWidth, Height = 28, Background = Brushes.Transparent, Cursor = Cursors.Hand, Child = tb,
+                Margin = new Thickness(i == 0 ? 0 : gap, 0, 0, 0)
             };
-            box.Margin = new Thickness(idx == 0 ? 0 : gap, 0, 0, 0);
-            box.MouseLeftButtonDown += (_, e) => { e.Handled = true; Select(idx, true); Picked?.Invoke(idx); };
-            _chips.Add((box, tb, fg));
-            row.Children.Add(box);
+            hit.MouseLeftButtonDown += (_, e) => { e.Handled = true; Select(idx, true); Picked?.Invoke(idx); };
+            _chips.Add((hit, fg));
+            textRow.Children.Add(hit);
         }
-        Children.Add(row);
+        Children.Add(textRow);
         _loop = new MotionLoop(Frame);
         _loop.Add(_x); _loop.Add(_o);
     }
@@ -343,7 +360,8 @@ public sealed class ChipRow : Grid
         if (idx < 0) { if (animate) _o.To(0, 0, 300, 28); else _o.Snap(0); }
         else
         {
-            if (!animate || first) _x.Snap(PosOf(idx)); else _x.To(PosOf(idx), 0, 520, 20);
+            // mesma mola da lente da barra de seções (380 / 21): chega rápido, passa de leve e assenta
+            if (!animate || first) _x.Snap(PosOf(idx)); else _x.To(PosOf(idx), 0, 380, 21);
             if (animate) _o.To(1, 0, 300, 28); else _o.Snap(1);
         }
         _loop.Kick(); Frame();
@@ -351,16 +369,18 @@ public sealed class ChipRow : Grid
 
     void Frame()
     {
-        double vel = Math.Abs(_x.Velocity), stretch = Math.Min(vel * 0.03, 26);
+        double stretch = Math.Min(Math.Abs(_x.Velocity) * 0.016, 18);       // esticar/achatar, como na barra
         _hl.Width = _w + stretch;
+        _hl.Height = 28 - Math.Min(stretch * 0.2, 4);
         _tt.X = _x.Value - stretch / 2;
-        _hl.Opacity = Math.Clamp(_o.Value, 0, 1);
+        double o = Math.Clamp(_o.Value, 0, 1);
+        _hl.Opacity = o;
         double hlC = _x.Value + _w / 2;
         var dark = Color.FromRgb(0x0A, 0x0A, 0x0B); var light = ((SolidColorBrush)K.Label).Color;
         for (int i = 0; i < _chips.Count; i++)
         {
             double cc = PosOf(i) + _w / 2;
-            double t = Math.Clamp(1 - Math.Abs(hlC - cc) / (_w * 0.75), 0, 1) * Math.Clamp(_o.Value, 0, 1);
+            double t = Math.Clamp(1 - Math.Abs(hlC - cc) / (_w * 0.8), 0, 1) * o;
             _chips[i].fg.Color = FK.Lerp(light, dark, t);
         }
     }

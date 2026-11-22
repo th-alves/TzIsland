@@ -74,7 +74,7 @@ sealed class NotesView : PageBase
         // ---- Cartão esquerdo: lista de notas
         var left = K.Rows("auto", "*");
         var lh = K.Cols("*", "auto");
-        lh.Children.Add(FK.Header("\uE70F", "Notas"));
+        lh.Children.Add(FK.Header(Ico.Make("file-text", 12, K.Label, 1.9), "Notas"));
         lh.Children.Add(K.IconBtn("\uE710", "Nova nota", () => { var n = Svc.Notes.Add(); Open(n); Refresh(); _edit.Focus(); }, 12, 28, 24, K.Fg).At(col: 1));
         lh.Margin = new Thickness(4, 0, 0, 8);
         left.Children.Add(lh);
@@ -85,7 +85,7 @@ sealed class NotesView : PageBase
         // ---- Cartão direito: editor
         var right = K.Rows("auto", "*");
         var rh = K.Cols("*", "auto", "auto");
-        rh.Children.Add(FK.Header("\uE70F", "Editor"));
+        rh.Children.Add(FK.Header(Ico.Make("pen", 12, K.Label, 1.9), "Editor"));
         rh.Children.Add(_meta.At(col: 1).Vc().M(0, 0, 6, 0));
         rh.Children.Add(K.IconBtn("\uE74D", "Excluir nota", Delete, 12, 28, 24, K.Red).At(col: 2));
         rh.Margin = new Thickness(2, 0, 0, 8);

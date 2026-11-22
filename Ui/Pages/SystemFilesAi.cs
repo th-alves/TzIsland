@@ -3,52 +3,110 @@ using Shapes = System.Windows.Shapes;
 namespace TzIsland;
 
 /// <summary>
-/// System Status Page: Real-time telemetry including Battery health, Microphone privacy,
-/// Bluetooth peripherals, Master audio mixing, and DDC/CI Display brightness controls.
+/// Sistema: no mesmo estilo da Início. Uma caixa com o que se liga/desliga (Bateria, Wi-Fi, Bluetooth, Microfone),
+/// outra com os controles deslizantes (Volume, Brilho) e uma terceira, empilhada, com os dispositivos conectados.
 /// </summary>
 public sealed class SystemPage : PageBase
 {
-    readonly TextBlock _bat = K.T("", 13, K.Fg, true), _batSub = K.T("", 11, K.Dim), _mic = K.T("", 12), _micSub = K.T("", 11, K.Dim), _btHead = K.T("Bluetooth", 12, K.Fg, true);
-    readonly Shapes.Ellipse _micDot = new() { Width = 9, Height = 9, Fill = K.Faint, VerticalAlignment = VerticalAlignment.Center };
-    readonly StackPanel _bt = new(), _displays = new();
-    readonly PillSlider _vol = new();
+    // Bateria
+    readonly BatteryGlyph _batGlyph = new() { Width = 30, Height = 16 };
+    readonly TextBlock _batPct = K.Num("", 15), _batSub = K.T("", 10.5, K.Muted);
+    // Wi-Fi
+    readonly Border _wifiIcon = new() { Width = 20, Height = 20 };
+    readonly TextBlock _wifiSub = K.T("", 10.5, K.Muted);
+    readonly SwitchToggle _wifiSw = new();
+    // Bluetooth
+    readonly Border _btIcon = new() { Width = 20, Height = 20 };
+    readonly TextBlock _btSub = K.T("", 10.5, K.Muted);
+    readonly SwitchToggle _btSw = new();
+    // Microfone
+    readonly Border _micIcon = new() { Width = 20, Height = 20 };
+    readonly TextBlock _micSub = K.T("", 10.5, K.Muted), _micState = K.T("", 11, K.Label, true);
+    // Controles
+    readonly PillSlider _vol = new() { Fill = K.White, Height = 14 };
+    readonly TextBlock _volNum = K.Num("", 11.5, K.Label);
     readonly Button _mute;
+    readonly StackPanel _bri = new(), _devices = new();
     readonly DispatcherTimer _t = new() { Interval = TimeSpan.FromSeconds(20) };
+
+    static Border Circle(UIElement inner)
+        => new() { Width = 34, Height = 34, CornerRadius = new CornerRadius(17), Background = K.Track, Child = inner, HorizontalAlignment = HorizontalAlignment.Left };
+
+    static Grid Row(UIElement icon, string title, TextBlock sub, UIElement? right)
+    {
+        var g = K.Cols("44", "*", "auto");
+        g.Margin = new Thickness(0, 0, 0, 5);
+        g.Children.Add(icon);
+        var tx = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        tx.Children.Add(K.T(title, 12.5, K.Fg, true)); tx.Children.Add(sub.M(0, 1, 0, 0));
+        g.Children.Add(tx.At(col: 1));
+        if (right != null) { ((FrameworkElement)right).VerticalAlignment = VerticalAlignment.Center; g.Children.Add(right.At(col: 2)); }
+        return g;
+    }
+
+    static void SetIcon(Border host, string id, Brush stroke) => host.Child = Ico.Make(id, 18, stroke, 1.7);
 
     public SystemPage()
     {
-        var g = K.Cols("1*", "1*");
-        var left = new StackPanel { Margin = new Thickness(0, 0, 10, 0) };
+        Root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Root.RowDefinitions.Add(new RowDefinition { Height = K.GL("*") });
 
-        var batRow = K.Cols("32", "*");
-        batRow.Children.Add(K.Glyph("\uEBAA", 20, K.Green));
-        var bs = new StackPanel(); bs.Children.Add(_bat); bs.Children.Add(_batSub);
-        batRow.Children.Add(bs.At(col: 1));
-        left.Children.Add(K.CardBox(batRow, 14, new Thickness(12)));
+        var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 0, 0, 9) };
+        head.Children.Add(Ico.Make("monitor", 15, K.Fg, 1.8));
+        head.Children.Add(K.T("Sistema", 13, K.Fg, true).M(8, 0, 0, 0).Vc());
+        Root.Children.Add(head);
 
-        var micRow = K.Cols("20", "*");
-        micRow.Children.Add(_micDot);
-        var ms = new StackPanel(); ms.Children.Add(_mic); ms.Children.Add(_micSub);
-        micRow.Children.Add(ms.At(col: 1));
-        left.Children.Add(K.CardBox(micRow, 14, new Thickness(12)).M(0, 6, 0, 0));
+        var body = K.Cols("1.08*", "1*");
 
-        var btBox = new StackPanel(); btBox.Children.Add(_btHead); btBox.Children.Add(_bt);
-        left.Children.Add(K.CardBox(btBox, 14, new Thickness(12)).M(0, 6, 0, 0));
-        g.Children.Add(left);
+        // ---------- Caixa 1: itens ativáveis
+        var rows = new StackPanel { Margin = new Thickness(0, 9, 0, 0) };
+        var batIcon = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(17), Background = K.Track, HorizontalAlignment = HorizontalAlignment.Left, Child = _batGlyph };
+        _batGlyph.HorizontalAlignment = HorizontalAlignment.Center; _batGlyph.VerticalAlignment = VerticalAlignment.Center; _batGlyph.Width = 22; _batGlyph.Height = 12;
+        rows.Children.Add(Row(batIcon, "Bateria", _batSub, _batPct));
+        rows.Children.Add(Row(Circle(_wifiIcon), "Wi-Fi", _wifiSub, _wifiSw));
+        rows.Children.Add(Row(Circle(_btIcon), "Bluetooth", _btSub, _btSw));
+        rows.Children.Add(Row(Circle(_micIcon), "Microfone", _micSub, _micState));
+        foreach (var sw in new[] { _wifiSw, _btSw }) { sw.RenderTransformOrigin = new Point(1, 0.5); sw.RenderTransform = new ScaleTransform(0.85, 0.85); }
+        _wifiIcon.HorizontalAlignment = _btIcon.HorizontalAlignment = _micIcon.HorizontalAlignment = HorizontalAlignment.Center;
+        _wifiIcon.VerticalAlignment = _btIcon.VerticalAlignment = _micIcon.VerticalAlignment = VerticalAlignment.Center;
 
-        var right = new StackPanel();
-        var vrow = K.Cols("auto", "*");
-        _mute = K.IconBtn("\uE767", "Silenciar", () => { Svc.Audio.Muted = !Svc.Audio.Muted; SyncVol(); }, 14, 32, 28);
-        vrow.Children.Add(_mute); vrow.Children.Add(_vol.At(col: 1).M(6, 0, 4, 0));
-        var vb = new StackPanel(); vb.Children.Add(FK.Header("\uE767", "VOLUME DO SISTEMA").M(0, 0, 0, 6)); vb.Children.Add(vrow);
-        right.Children.Add(K.CardBox(vb, 14, new Thickness(12)));
-        right.Children.Add(K.Scroll(_displays).M(0, 6, 0, 0));
-        ((ScrollViewer)right.Children[1]).MaxHeight = 175;
-        g.Children.Add(right.At(col: 1));
-        Root.Children.Add(g);
+        var g1 = K.Rows("auto", "*");
+        g1.Children.Add(FK.Header(Ico.Make("wifi", 12, K.Label, 1.9), "Conexões"));
+        g1.Children.Add(rows.At(row: 1));
+        var c1 = FK.Card(g1, 20); c1.Margin = new Thickness(0, 0, 5, 0);
+        body.Children.Add(c1);
 
-        _vol.Changed += v => { Svc.Audio.Volume = (float)v; if (Svc.Audio.Muted && v > 0) Svc.Audio.Muted = false; };
-        _t.Tick += async (_, _) => await LoadDevicesAsync();
+        // ---------- Caixa 2: controles deslizantes
+        var ctl = new StackPanel { Margin = new Thickness(0, 9, 0, 0) };
+        _mute = K.IconBtn("\uE767", "Silenciar", () => { Svc.Audio.Muted = !Svc.Audio.Muted; SyncVol(); }, 13, 30, 28, K.Fg);
+        var vrow = K.Cols("30", "*", "30");
+        vrow.Children.Add(_mute); vrow.Children.Add(_vol.At(col: 1).M(6, 0, 6, 0));
+        _volNum.HorizontalAlignment = HorizontalAlignment.Right; vrow.Children.Add(_volNum.At(col: 2).Vc());
+        ctl.Children.Add(vrow);
+        ctl.Children.Add(_bri);
+        var g2 = K.Rows("auto", "*");
+        g2.Children.Add(FK.Header(Ico.Make("sun", 12, K.Label, 1.9), "Controles"));
+        g2.Children.Add(ctl.At(row: 1));
+        var c2 = FK.Card(g2, 20);
+
+        // ---------- Caixa 3: dispositivos conectados (itens individuais empilhados)
+        var g3 = K.Rows("auto", "*");
+        g3.Children.Add(FK.Header(Ico.Make("headphones", 12, K.Label, 1.9), "Dispositivos"));
+        var sc = K.Scroll(_devices); sc.Margin = new Thickness(0, 8, 0, 0);
+        g3.Children.Add(sc.At(row: 1));
+        var c3 = FK.Card(g3, 20); c3.Margin = new Thickness(0, 5, 0, 0);
+
+        var right = K.Rows("auto", "*");
+        right.Margin = new Thickness(5, 0, 0, 0);
+        right.Children.Add(c2); right.Children.Add(c3.At(row: 1));
+        body.Children.Add(right.At(col: 1));
+        Root.Children.Add(body.At(row: 1));
+
+        _vol.Changed += v => { Svc.Audio.Volume = (float)v; if (Svc.Audio.Muted && v > 0) Svc.Audio.Muted = false; _volNum.Text = Math.Round(v * 100).ToString(CultureInfo.InvariantCulture); };
+        _wifiSw.Toggled += async on => { _wifiSw.IsHitTestVisible = false; await Svc.Network.SetWifiAsync(on); await Task.Delay(700); await Svc.Network.RefreshAsync(); SyncWifi(); _wifiSw.IsHitTestVisible = true; };
+        _btSw.Toggled += async on => { _btSw.IsHitTestVisible = false; await Svc.Bluetooth.SetAsync(on); await Task.Delay(500); await Svc.Bluetooth.RefreshAsync(); SyncBt(); _btSw.IsHitTestVisible = true; };
+        _t.Tick += async (_, _) => await LoadAsync();
+        SyncBat(); SyncWifi(); SyncBt(); SyncMic(); SyncVol();
     }
 
     public override async void Shown()
@@ -56,7 +114,7 @@ public sealed class SystemPage : PageBase
         Svc.Battery.Changed += SyncBat; Svc.Audio.VolumeChanged += SyncVol; Svc.Audio.MicChanged += SyncMic;
         SyncBat(); SyncVol(); SyncMic();
         _t.Start();
-        await LoadDevicesAsync();
+        await LoadAsync();
     }
 
     public override void Hidden()
@@ -68,73 +126,120 @@ public sealed class SystemPage : PageBase
     void SyncBat()
     {
         var b = Svc.Battery;
-        _bat.Text = b.HasBattery ? $"Bateria {b.Percent}%" : "Desktop (sem bateria)";
-        _batSub.Text = b.HasBattery ? (b.Charging ? "Carregando / conectado à rede" : "Operando na bateria") : "Alimentação contínua via tomada";
+        _batGlyph.Set(b.HasBattery ? Math.Max(0, b.Percent) : 100, b.HasBattery && b.Charging);
+        _batPct.Text = b.HasBattery ? $"{b.Percent}%" : "";
+        _batSub.Text = b.HasBattery ? (b.Charging ? "Carregando" : "Operando na bateria") : "Sem bateria · ligado na tomada";
+    }
+
+    void SyncWifi()
+    {
+        var n = Svc.Network; bool? on = n.WifiOn;
+        SetIcon(_wifiIcon, on == true ? "wifi" : "wifi-off", on == true ? K.White : K.Muted);
+        _wifiSub.Text = on == null ? "Indisponível neste PC" : on == false ? "Desligado" : n.Connected && n.Ssid.Length > 0 ? n.Ssid : "Sem conexão";
+        _wifiSw.IsOn = on == true; _wifiSw.Opacity = on == null ? 0.35 : 1; _wifiSw.IsHitTestVisible = on != null;
+    }
+
+    void SyncBt()
+    {
+        var b = Svc.Bluetooth; bool? on = b.RadioOn;
+        SetIcon(_btIcon, "bluetooth", on == true ? K.White : K.Muted);
+        _btSub.Text = on == null ? "Indisponível neste PC" : on == false ? "Desligado"
+            : b.Devices.Count == 0 ? "Ligado · nenhum dispositivo conectado" : b.Devices.Count == 1 ? "1 dispositivo conectado" : $"{b.Devices.Count} dispositivos conectados";
+        _btSw.IsOn = on == true; _btSw.Opacity = on == null ? 0.35 : 1; _btSw.IsHitTestVisible = on != null;
     }
 
     void SyncVol()
     {
         _vol.Value = Svc.Audio.Volume;
-        _mute.Content = K.Glyph(Svc.Audio.Muted || Svc.Audio.Volume <= 0.001f ? "\uE74F" : "\uE767", 14);
+        _volNum.Text = Math.Round(Svc.Audio.Volume * 100).ToString(CultureInfo.InvariantCulture);
+        bool off = Svc.Audio.Muted || Svc.Audio.Volume <= 0.001f;
+        _mute.Content = Ico.Make(off ? "volume-off" : Svc.Audio.Volume < 0.4f ? "volume-low" : "volume", 17, off ? K.Muted : K.Fg, 1.7);
     }
 
     void SyncMic()
     {
-        var a = Svc.Audio;
-        _micDot.Fill = a.MicInUse ? K.Orange : K.Faint;
-        _mic.Text = a.MicInUse ? "Microfone em uso" : "Microfone inativo";
-        _micSub.Text = !Settings.Current.MonitorMicrophone ? "Monitoramento desativado" : a.MicInUse ? string.Join(", ", a.MicApps) : "Nenhum aplicativo gravando áudio";
+        var a = Svc.Audio; bool use = a.MicInUse && Settings.Current.MonitorMicrophone;
+        SetIcon(_micIcon, "mic", use ? K.Orange : K.Muted);
+        _micState.Text = !Settings.Current.MonitorMicrophone ? "Desativado" : use ? "Em uso" : "Livre";
+        _micState.Foreground = use ? K.Orange : K.Label;
+        _micSub.Text = !Settings.Current.MonitorMicrophone ? "Monitoramento desativado" : use ? string.Join(", ", a.MicApps) : "Nenhum app gravando áudio";
     }
 
-    async Task LoadDevicesAsync()
+    async Task LoadAsync()
     {
-        await Svc.Bluetooth.RefreshAsync();
-        _btHead.Text = "Bluetooth" + (Svc.Bluetooth.RadioOn == null ? " · indisponível" : Svc.Bluetooth.RadioOn == true ? " · conectado" : " · desativado");
-        _bt.Children.Clear();
-        if (Svc.Bluetooth.Devices.Count == 0) _bt.Children.Add(K.T("Nenhum dispositivo emparelhado", 11, K.Dim).M(0, 4, 0, 0));
-        foreach (var d in Svc.Bluetooth.Devices)
-            _bt.Children.Add(K.T($"{d.Name} {(d.Battery != null ? d.Battery + "%" : "· ativo")}", 11, K.Dim).M(0, 2, 0, 0));
-
-        if (_displays.Children.Count == 0) await Svc.Brightness.RefreshAsync();
+        await Svc.Network.RefreshAsync(); SyncWifi();
+        await Svc.Bluetooth.RefreshAsync(); SyncBt(); BuildDevices();
+        if (_bri.Children.Count == 0) await Svc.Brightness.RefreshAsync();
         BuildDisplays();
+    }
+
+    void BuildDevices()
+    {
+        _devices.Children.Clear();
+        var list = Svc.Bluetooth.Devices;
+        if (list.Count == 0)
+        {
+            var t = K.T(Svc.Bluetooth.RadioOn == false ? "Bluetooth desligado" : "Nenhum dispositivo conectado", 11, K.Muted);
+            t.Margin = new Thickness(0, 4, 0, 0);
+            _devices.Children.Add(t);
+            return;
+        }
+        foreach (var d in list)
+        {
+            var row = K.Cols("26", "*", "auto");
+            row.Margin = new Thickness(0, 0, 0, 7);
+            row.Children.Add(Ico.Make("bluetooth", 15, K.Label, 1.8).Vc());
+            row.Children.Add(K.T(d.Name, 12, K.Fg, true).At(col: 1).Vc());
+            if (d.Battery != null)
+            {
+                var b = new StackPanel { Orientation = Orientation.Horizontal };
+                var bg = new BatteryGlyph { Width = 22, Height = 12 }; bg.Set(d.Battery.Value, false);
+                b.Children.Add(K.Num($"{d.Battery}%", 11, K.Label).Vc().M(0, 0, 7, 0)); b.Children.Add(bg);
+                row.Children.Add(b.At(col: 2).Vc());
+            }
+            else row.Children.Add(K.T("ativo", 10.5, K.Muted).At(col: 2).Vc());
+            _devices.Children.Add(row);
+        }
     }
 
     void BuildDisplays()
     {
-        _displays.Children.Clear();
+        _bri.Children.Clear();
         var devs = Svc.Brightness.Devices;
         if (devs.Count == 0)
         {
-            var t = K.T("Nenhum monitor com controle de brilho via software DDC/CI encontrado.", 11, K.Faint);
-            t.TextWrapping = TextWrapping.Wrap;
-            _displays.Children.Add(t);
+            var t = K.T("Brilho indisponível: nenhum monitor com controle por software (DDC/CI).", 10.5, K.Muted);
+            t.TextWrapping = TextWrapping.Wrap; t.Margin = new Thickness(0, 8, 0, 0);
+            _bri.Children.Add(t);
             return;
         }
         foreach (var d in devs)
         {
-            var box = new StackPanel();
-            box.Children.Add(K.T(d.Name, 12, K.Fg, true));
-            box.Children.Add(Slider("\uE706", "Brilho", d.Min, d.Max, d.Cur, v => Svc.Brightness.SetBrightness(d, v)));
-            if (d.HasContrast) box.Children.Add(Slider("\uE7F4", "Contraste", d.CMin, d.CMax, d.CCur, v => Svc.Brightness.SetContrast(d, v)));
-            _displays.Children.Add(K.CardBox(box, 14, new Thickness(10)).M(0, 0, 0, 6));
+            if (devs.Count > 1) _bri.Children.Add(K.T(d.Name, 10.5, K.Muted).M(0, 8, 0, 0));
+            _bri.Children.Add(Slider("sun", "Brilho", d.Min, d.Max, d.Cur, v => Svc.Brightness.SetBrightness(d, v), devs.Count > 1 ? 3 : 8));
+            if (d.HasContrast) _bri.Children.Add(Slider("contrast", "Contraste", d.CMin, d.CMax, d.CCur, v => Svc.Brightness.SetContrast(d, v), 3));
         }
     }
 
-    static UIElement Slider(string glyph, string tip, uint min, uint max, uint cur, Action<uint> set)
+    static UIElement Slider(string icon, string tip, uint min, uint max, uint cur, Action<uint> set, double top)
     {
-        var s = new PillSlider { Value = max > min ? (cur - min) / (double)(max - min) : 0, ToolTip = tip };
+        var s = new PillSlider { Value = max > min ? (cur - min) / (double)(max - min) : 0, ToolTip = tip, Fill = K.White, Height = 14 };
+        var num = K.Num(Math.Round(s.Value * 100).ToString(CultureInfo.InvariantCulture), 11.5, K.Label);
+        num.HorizontalAlignment = HorizontalAlignment.Right;
         DateTime last = DateTime.MinValue;
         s.Changed += v =>
         {
+            num.Text = Math.Round(v * 100).ToString(CultureInfo.InvariantCulture);
             if ((DateTime.Now - last).TotalMilliseconds < 90) return;
             last = DateTime.Now;
             uint val = (uint)(min + v * (max - min));
             Task.Run(() => set(val));
         };
-        var g = K.Cols("22", "*");
-        g.Children.Add(K.Glyph(glyph, 13, K.Dim));
-        g.Children.Add(s.At(col: 1));
-        g.Margin = new Thickness(0, 4, 0, 0);
+        var g = K.Cols("30", "*", "30");
+        g.Children.Add(Ico.Make(icon, 16, K.Label, 1.7).Vc().M(7, 0, 0, 0));
+        g.Children.Add(s.At(col: 1).M(6, 0, 6, 0));
+        g.Children.Add(num.At(col: 2).Vc());
+        g.Margin = new Thickness(0, top, 0, 0);
         return g;
     }
 }

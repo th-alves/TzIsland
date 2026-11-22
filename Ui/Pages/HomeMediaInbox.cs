@@ -49,7 +49,7 @@ public sealed class HomePage : PageBase
 
         // ---- Cabeçalho: ⌂ Início  qua., 30 set
         var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 0, 0, 9) };
-        head.Children.Add(K.Glyph("\uE80F", 12, K.Fg).M(0, 0, 7, 0));
+        head.Children.Add(Ico.Make("home", 15, K.Fg, 1.8).M(0, 0, 8, 0));
         head.Children.Add(K.T("Início", 13, K.Fg, true).Vc());
         var hd = K.T(DateTime.Now.ToString("ddd, d MMM", Pt), 11.5, K.Muted); hd.Margin = new Thickness(9, 1, 0, 0);
         head.Children.Add(hd.Vc());
@@ -62,14 +62,14 @@ public sealed class HomePage : PageBase
         // ---- SISTEMA
         var sysRow = new UniformGrid3();
         sysRow.Add(RingWithCaption(_cpu, "CPU")); sysRow.Add(RingWithCaption(_ram, "RAM")); sysRow.Add(RingWithCaption(_disk, "Disco"));
-        var sysCard = Card("\uE772", "Sistema", sysRow.Host, 0, 0, 1, 1);
+        var sysCard = Card("monitor", "Sistema", sysRow.Host, 0, 0, 1, 1);
         sysRow.Host.VerticalAlignment = VerticalAlignment.Center;
         grid.Children.Add(sysCard);
 
         // ---- RELÓGIO (2 colunas)
         var clock = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         clock.Children.Add(_time); clock.Children.Add(_weekday.M(0, 1, 0, 0)); clock.Children.Add(_date.M(0, 1, 0, 0));
-        grid.Children.Add(Card("\uE823", "Relógio", clock, 0, 1, 1, 2));
+        grid.Children.Add(Card("clock", "Relógio", clock, 0, 1, 1, 2));
 
         // ---- TOCANDO AGORA (2 colunas)
         _play = FK.RoundButton("\uE768", "Reproduzir/Pausar", () => Svc.Media.PlayPause(), 28, K.White, K.Ink, 10);
@@ -88,13 +88,13 @@ public sealed class HomePage : PageBase
         foot.Children.Add(_cur.At(col: 1).Vc());
         foot.VerticalAlignment = VerticalAlignment.Bottom;
         np.Children.Add(foot.At(row: 3));
-        var npCard = Card("\uE8D6", "Tocando agora", np, 1, 0, 1, 2);
+        var npCard = Card("music", "Tocando agora", np, 1, 0, 1, 2);
         grid.Children.Add(npCard);
 
         // ---- BATERIA
         var bat = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         bat.Children.Add(_batNum); bat.Children.Add(_batSub.M(0, 1, 0, 0));
-        grid.Children.Add(Card("\uEBAA", "Bateria", bat, 1, 2, 1, 1));
+        grid.Children.Add(Card("battery", "Bateria", bat, 1, 2, 1, 1));
 
         // ---- SOM E LUZ
         _mute = K.IconBtn("\uE767", "Silenciar", () => { Svc.Audio.Muted = !Svc.Audio.Muted; SyncVol(); }, 12, 22, 22, K.Label);
@@ -103,19 +103,19 @@ public sealed class HomePage : PageBase
         _briRow.Margin = new Thickness(0, 8, 0, 0); _briRow.Visibility = Visibility.Collapsed;
         var snd = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         snd.Children.Add(volRow); snd.Children.Add(_briRow);
-        grid.Children.Add(Card("\uE767", "Som e luz", snd, 2, 0, 1, 1));
+        grid.Children.Add(Card("volume", "Som e luz", snd, 2, 0, 1, 1));
         _vol.Changed += v => { Svc.Audio.Volume = (float)v; if (Svc.Audio.Muted && v > 0) Svc.Audio.Muted = false; };
         _bri.Changed += v => { var d = Svc.Brightness.Devices.FirstOrDefault(); if (d != null) Svc.Brightness.SetBrightness(d, (uint)(d.Min + v * (d.Max - d.Min))); };
 
         // ---- CLIMA
         var wx = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         wx.Children.Add(_temp); wx.Children.Add(_wLabel.M(0, 1, 0, 0)); wx.Children.Add(Wrap(_wDays).M(0, 3, 0, 0));
-        grid.Children.Add(Card("\uE753", "Clima", wx, 2, 1, 1, 1));
+        grid.Children.Add(Card("cloud", "Clima", wx, 2, 1, 1, 1));
 
         // ---- AGENDA
         var ag = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         ag.Children.Add(Wrap(_next)); ag.Children.Add(Wrap(_nextSub).M(0, 3, 0, 0));
-        grid.Children.Add(Card("\uE787", "Agenda", ag, 2, 2, 1, 1));
+        grid.Children.Add(Card("calendar", "Agenda", ag, 2, 2, 1, 1));
 
         var scroll = K.Scroll(grid);
         Root.Children.Add(scroll.At(row: 1));
@@ -133,7 +133,7 @@ public sealed class HomePage : PageBase
     static Border Card(string glyph, string title, UIElement body, int row, int col, int rowSpan, int colSpan)
     {
         var g = K.Rows("auto", "*");
-        g.Children.Add(FK.Header(glyph, title));
+        g.Children.Add(FK.Header(Ico.Make(glyph, 12, K.Label, 1.9), title));
         g.Children.Add(body.At(row: 1));
         ((FrameworkElement)body).Margin = new Thickness(0, 5, 0, 0);
         var c = FK.Card(g, 18);

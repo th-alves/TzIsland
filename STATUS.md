@@ -85,6 +85,14 @@ Todos os itens abaixo precisam ser testados por você no primeiro `dotnet run`; 
 - ✅ Barra de seções: lente em mola mais macia, ícones que acendem/crescem conforme a lente passa, página nova entra pela direção certa
 - ℹ️ Os sons da Ambientação são **sintetizados** (sem arquivos nem direitos autorais). Para usar gravações reais, coloque `rain.mp3`, `forest.mp3`, `cafe.mp3`, `office.mp3`, `lofi.mp3`, `fire.mp3`, `stream.mp3` ou `waves.mp3` em `Sounds\` ao lado do app (ou em `%AppData%\TzIsland\Sounds`)
 - 🟡 Validado com compilação de tipos fora do Windows e teste numérico do motor de áudio; **não** foi executado em Windows: confira visualmente e me diga o que ajustar
+## Etapa 11 — Ajustes após o primeiro teste (v2.2)
+- ✅ **Ilha recolhida com atividade ao vivo:** timers em andamento (Pomodoro, Temporizador, Cronômetro) aparecem com ícone + tempo; mídia continua com ícone + espectro; os dois juntos alargam a ilha (timer à esquerda, mídia à direita). Cada troca de combinação é registrada em `log.txt`
+- ✅ Seleção legível: o texto ficava escuro sobre fundo escuro e o branco vazava nos cantos porque os chips eram opacos e cobriam o destaque. `ChipRow` refeito em camadas (pílulas → lente branca → texto) com a **mesma mola da barra de seções** (380/21, esticar/achatar, texto acende conforme a lente passa)
+- ✅ Barra de seções: botões com o mesmo tamanho e raio da lente (o realce de hover não vaza mais) e ícones vetoriais de traço fino
+- ✅ Gotas de água: a área de clique agora é a célula inteira (antes só os pixels do contorno)
+- ✅ Caracteres estranhos em "Mix" e "Parar tudo": o código dos ícones tinha barra invertida duplicada
+- ✅ **Sistema** refeito no estilo da Início: caixa de itens ativáveis (Bateria, Wi-Fi, Bluetooth, Microfone), caixa de controles (Volume, Brilho, Contraste) e caixa de dispositivos conectados. Wi-Fi e Bluetooth ligam/desligam de verdade pelos rádios do Windows
+- ✅ Conjunto de ícones vetoriais novo (35) e ícone de bateria desenhado em código (preenchimento proporcional, cor por nível, raio ao carregar)
 ## Pendente
 - ⏳ Empacotamento MSIX (para notificações do Windows)
 - ⏳ Reordenar/ocultar ícones da barra inferior por arrastar

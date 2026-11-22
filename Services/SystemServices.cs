@@ -212,6 +212,20 @@ public sealed class BluetoothService
     const string BatteryKey = "{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2";
     public bool? RadioOn;
     public List<BtDevice> Devices { get; private set; } = new();
+    Radio? _radio;
+
+    public async Task<bool> SetAsync(bool on)
+    {
+        try
+        {
+            _radio ??= (await Radio.GetRadiosAsync()).FirstOrDefault(r => r.Kind == RadioKind.Bluetooth);
+            if (_radio == null) return false;
+            var r = await _radio.SetStateAsync(on ? RadioState.On : RadioState.Off);
+            RadioOn = _radio.State == RadioState.On;
+            return r == RadioAccessStatus.Allowed;
+        }
+        catch (Exception e) { Log.Write(e); return false; }
+    }
 
     public async Task RefreshAsync()
     {
@@ -220,7 +234,7 @@ public sealed class BluetoothService
             await Radio.RequestAccessAsync();
             var radios = await Radio.GetRadiosAsync();
             var bt = radios.FirstOrDefault(r => r.Kind == RadioKind.Bluetooth);
-            RadioOn = bt == null ? null : bt.State == RadioState.On;
+            _radio = bt; RadioOn = bt == null ? null : bt.State == RadioState.On;
         }
         catch { RadioOn = null; }
 
