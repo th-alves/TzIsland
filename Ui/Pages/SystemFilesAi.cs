@@ -26,7 +26,10 @@ public sealed class SystemPage : PageBase
     readonly PillSlider _vol = new() { Fill = K.White, Height = 14 };
     readonly TextBlock _volNum = K.Num("", 11.5, K.Label);
     readonly Button _mute;
-    readonly StackPanel _bri = new(), _devices = new();
+    readonly StackPanel _bri = new();
+    readonly StackPanel _devices = new() { Orientation = Orientation.Horizontal };
+    readonly TextBlock _devEmpty = K.T("", 11, K.Muted);
+    bool _devFresh = true;     // próxima montagem é uma "entrada" (varredura dos LEDs desde 0)
     readonly DispatcherTimer _t = new() { Interval = TimeSpan.FromSeconds(20) };
 
     static Border Circle(UIElement inner)
@@ -92,7 +95,22 @@ public sealed class SystemPage : PageBase
         // ---------- Caixa 3: dispositivos conectados (itens individuais empilhados)
         var g3 = K.Rows("auto", "*");
         g3.Children.Add(FK.Header(Ico.Make("headphones", 12, K.Label, 1.9), "Dispositivos"));
-        var sc = K.Scroll(_devices); sc.Margin = new Thickness(0, 8, 0, 0);
+        // uma fileira só, rolando para o lado com a roda do mouse quando há muitos aparelhos
+        var sc = new ScrollViewer { Content = _devices, HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, Margin = new Thickness(-4, 6, -4, 0), VerticalAlignment = VerticalAlignment.Center };
+        sc.PreviewMouseWheel += (_, e) => { if (sc.ScrollableWidth <= 0) return; sc.ScrollToHorizontalOffset(sc.HorizontalOffset - e.Delta * 0.5); e.Handled = true; };
+        void Fade()
+        {
+            if (sc.ScrollableWidth <= 0.5) { sc.OpacityMask = null; return; }
+            double w = Math.Max(1, sc.ActualWidth), f = 22 / w;
+            bool l = sc.HorizontalOffset > 0.5, r = sc.HorizontalOffset < sc.ScrollableWidth - 0.5;
+            var g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 0) };
+            g.GradientStops.Add(new GradientStop(l ? Colors.Transparent : Colors.Black, 0));
+            g.GradientStops.Add(new GradientStop(Colors.Black, f));
+            g.GradientStops.Add(new GradientStop(Colors.Black, 1 - f));
+            g.GradientStops.Add(new GradientStop(r ? Colors.Transparent : Colors.Black, 1));
+            sc.OpacityMask = g;
+        }
+        sc.ScrollChanged += (_, _) => Fade(); sc.SizeChanged += (_, _) => Fade();
         g3.Children.Add(sc.At(row: 1));
         var c3 = FK.Card(g3, 20); c3.Margin = new Thickness(0, 5, 0, 0);
 
@@ -114,6 +132,7 @@ public sealed class SystemPage : PageBase
         Svc.Battery.Changed += SyncBat; Svc.Audio.VolumeChanged += SyncVol; Svc.Audio.MicChanged += SyncMic;
         SyncBat(); SyncVol(); SyncMic();
         _t.Start();
+        BuildDevices();
         await LoadAsync();
     }
 
@@ -121,6 +140,7 @@ public sealed class SystemPage : PageBase
     {
         Svc.Battery.Changed -= SyncBat; Svc.Audio.VolumeChanged -= SyncVol; Svc.Audio.MicChanged -= SyncMic;
         _t.Stop();
+        _devFresh = true;
     }
 
     void SyncBat()
@@ -175,31 +195,39 @@ public sealed class SystemPage : PageBase
 
     void BuildDevices()
     {
-        _devices.Children.Clear();
         var list = Svc.Bluetooth.Devices;
         if (list.Count == 0)
         {
-            var t = K.T(Svc.Bluetooth.RadioOn == false ? "Bluetooth desligado" : "Nenhum dispositivo conectado", 11, K.Muted);
-            t.Margin = new Thickness(0, 4, 0, 0);
-            _devices.Children.Add(t);
+            _devices.Children.Clear();
+            _devEmpty.Text = Svc.Bluetooth.RadioOn == false ? "Bluetooth desligado" : "Nenhum dispositivo conectado";
+            _devEmpty.Margin = new Thickness(0, 4, 0, 0);
+            _devices.Children.Add(_devEmpty);
+            _devFresh = true;
             return;
         }
+        _devices.Children.Remove(_devEmpty);
+        // reaproveita os blocos existentes (só animam o que mudou); remove quem desconectou e adiciona quem chegou
+        var old = _devices.Children.OfType<DeviceTile>().ToDictionary(t => t.Id);
+        foreach (var t in old.Values.Where(t => list.All(d => d.Id != t.Id)).ToList()) _devices.Children.Remove(t);
+        int i = 0;
         foreach (var d in list)
         {
-            var row = K.Cols("26", "*", "auto");
-            row.Margin = new Thickness(0, 0, 0, 7);
-            row.Children.Add(Ico.Make("bluetooth", 15, K.Label, 1.8).Vc());
-            row.Children.Add(K.T(d.Name, 12, K.Fg, true).At(col: 1).Vc());
-            if (d.Battery != null)
+            double delay = 0.12 + i * 0.07;
+            if (old.TryGetValue(d.Id, out var tile))
             {
-                var b = new StackPanel { Orientation = Orientation.Horizontal };
-                var bg = new BatteryGlyph { Width = 22, Height = 12 }; bg.Set(d.Battery.Value, false);
-                b.Children.Add(K.Num($"{d.Battery}%", 11, K.Label).Vc().M(0, 0, 7, 0)); b.Children.Add(bg);
-                row.Children.Add(b.At(col: 2).Vc());
+                tile.Update(d, _devFresh, delay);
+                if (_devFresh) Motion.Reveal(tile, delay - 0.08, 10, 0.9);
             }
-            else row.Children.Add(K.T("ativo", 10.5, K.Muted).At(col: 2).Vc());
-            _devices.Children.Add(row);
+            else
+            {
+                tile = new DeviceTile(d);
+                _devices.Children.Insert(Math.Min(i, _devices.Children.Count), tile);
+                tile.Update(d, true, delay);
+                Motion.Reveal(tile, delay - 0.08, 10, 0.9);
+            }
+            i++;
         }
+        _devFresh = false;
     }
 
     void BuildDisplays()
