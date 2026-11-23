@@ -1,6 +1,6 @@
 # TzIsland
 
-Dynamic Island para Windows 10/11 (x64). C# · WPF · .NET 8.
+Dynamic Island para Windows 10/11 (x64). C# · WPF · .NET 10 ou superior.
 
 ## Como compilar e instalar
     dotnet run                                  # testar
