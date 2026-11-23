@@ -188,6 +188,8 @@ public class Note
 {
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Text { get; set; } = "";
+    /// <summary>Conteúdo formatado (negrito, listas, títulos…) em XAML de FlowDocument. Vazio = nota antiga só com texto.</summary>
+    public string? Rich { get; set; }
     public DateTime Updated { get; set; } = DateTime.Now;
     [JsonIgnore]
     public string Title

@@ -129,3 +129,10 @@ Todos os itens abaixo precisam ser testados por você no primeiro `dotnet run`; 
 
 ## Etapa 16 — Ícone oficial (v2.5.1)
 - ✅ **Novo ícone "Tz" neon:** no exe, na barra de tarefas, na janela de Configurações, na bandeja do sistema e no instalador (Assets/TzIsland.ico, 16–256 px)
+
+## Etapa 17 — Barra lateral e nova página de Notas (v2.6.0)
+- ✅ **Barra de seções na lateral direita:** ícones em coluna, lente deslizando na vertical, engrenagem fixa embaixo, rolagem com bordas esmaecidas quando há muitas seções; troca de páginas na vertical
+- ✅ **Notas redesenhadas:** painel de formatação (Negrito, Itálico, Riscado, Código, Lista, Numerada, Título) + editor em cartão, expansível
+- ✅ **Cabeçalho das notas:** contador, alternador Lista/Formatar, indicador de salvo, nova, exportar (.txt), excluir e ajuda com atalhos
+- ✅ Formatação salva junto da nota (campo `Rich`), notas antigas continuam abrindo
+- ✅ Correções: lente fora do lugar ao abrir a ilha; editor não recebia teclado
