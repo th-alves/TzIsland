@@ -282,6 +282,7 @@ public static class Modules
         new("inbox", "\uE715", "Inbox"),
         new("productivity", "\uE70F", "Produtividade"),
         new("clipboard", "\uE77F", "Área de transferência"),
+        new("mixer", "\uE767", "Mixer de volume"),
         new("system", "\uE772", "Sistema"),
         new("files", "\uE8B7", "Arquivos"),
         new("ai", "AI", "Agentes de IA"),

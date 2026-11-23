@@ -490,7 +490,7 @@ public sealed class IslandWindow : Window
     {
         ["home"] = Ico.Path("home"), ["media"] = Ico.Path("music"), ["focus"] = Ico.Path("timer"), ["ambience"] = Ico.Path("waves"),
         ["inbox"] = Ico.Path("mail"), ["productivity"] = Ico.Path("pen"), ["system"] = Ico.Path("monitor"), ["files"] = Ico.Path("folder"),
-        ["clipboard"] = Ico.Path("clipboard"), ["mirror"] = Ico.Path("camera"), ["dictation"] = Ico.Path("mic")
+        ["clipboard"] = Ico.Path("clipboard"), ["mixer"] = Ico.Path("sliders"), ["mirror"] = Ico.Path("camera"), ["dictation"] = Ico.Path("mic")
     };
 
     void BuildNav()
@@ -550,7 +550,7 @@ public sealed class IslandWindow : Window
     // ---------------- Pages ----------------
     IPage? Make(string id) => id switch
     {
-        "home" => new HomePage(), "media" => new MediaPage(), "focus" => new FocusPage(), "ambience" => new AmbiencePage(), "inbox" => new InboxPage(), "productivity" => new ProductivityPage(), "clipboard" => new ClipboardPage(),
+        "home" => new HomePage(), "media" => new MediaPage(), "focus" => new FocusPage(), "ambience" => new AmbiencePage(), "inbox" => new InboxPage(), "productivity" => new ProductivityPage(), "clipboard" => new ClipboardPage(), "mixer" => new MixerPage(),
         "system" => new SystemPage(), "files" => new FilesPage(), "ai" => new AiPage(), "mirror" => new MirrorPage(), "dictation" => new DictationPage(),
         _ => null
     };

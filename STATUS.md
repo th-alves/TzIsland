@@ -120,3 +120,9 @@ Todos os itens abaixo precisam ser testados por você no primeiro `dotnet run`; 
 - ✅ **Letra da música:** volta a aparecer (a cor de fundo sem `#` derrubava a montagem das linhas e o app mostrava "Sem conexão"); linha cantada centralizada no painel, com fundo próprio e sombra
 - ✅ **Ilha não some no print:** a camada de captura (Win+Shift+S, ShareX, Greenshot, Lightshot, Snagit…) não é mais tratada como app em tela cheia
 - ✅ Armazenamento local: texto genérico, sem mostrar o caminho do perfil do usuário
+
+## Etapa 15 — Mixer de volume (v2.5.0)
+- ✅ **Mixer de volume na ilha:** volume e mudo de cada app que usa o som, com o ícone real do programa e medidor ao vivo; rolar o mouse ajusta de 2 em 2 (Shift = 10)
+- ✅ **Geral:** volume e mudo do sistema, com o nome da saída atual
+- ✅ **Saída:** troca o dispositivo de áudio padrão (fones, caixas, monitor) com um clique
+- ✅ Só atualiza enquanto a página está aberta. Módulo "Mixer de volume" em Configurações → Módulos
