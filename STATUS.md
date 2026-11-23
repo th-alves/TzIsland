@@ -126,3 +126,6 @@ Todos os itens abaixo precisam ser testados por você no primeiro `dotnet run`; 
 - ✅ **Geral:** volume e mudo do sistema, com o nome da saída atual
 - ✅ **Saída:** troca o dispositivo de áudio padrão (fones, caixas, monitor) com um clique
 - ✅ Só atualiza enquanto a página está aberta. Módulo "Mixer de volume" em Configurações → Módulos
+
+## Etapa 16 — Ícone oficial (v2.5.1)
+- ✅ **Novo ícone "Tz" neon:** no exe, na barra de tarefas, na janela de Configurações, na bandeja do sistema e no instalador (Assets/TzIsland.ico, 16–256 px)
