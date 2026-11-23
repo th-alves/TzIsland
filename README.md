@@ -1,56 +1,76 @@
-# TzIsland
+<p align="center">
+  <img src="Assets/icon-256.png" width="120" alt="TzIsland">
+</p>
 
-Dynamic Island para Windows 10/11 (x64). C# · WPF · .NET 8.
+<h1 align="center">TzIsland</h1>
 
-## Como compilar e instalar
-    dotnet run                                  # testar
-    dotnet publish -c Release -o publish        # gera publish\TzIsland.exe (arquivo único)
-    tools\vpk.exe pack -u TzIsland -v 2.7.0 -p publish -e TzIsland.exe -i Assets\TzIsland.ico -c win -o releases
-Rode `releases\TzIsland-win-Setup.exe` para instalar. Detalhes de empacotamento, publicação no
-GitHub Releases e atualização automática (Velopack): **docs/VELOPACK.md**. O `installer.iss` (Inno) ficou obsoleto.
+<p align="center">
+  A <b>Dynamic Island</b> do iPhone, agora no seu Windows.<br>
+  Uma ilha elegante no topo da tela que mostra o que importa e se abre com animações suaves.
+</p>
 
-## Arquitetura
-    Core/       configurações (JSON), barramento de eventos (Hub), motor de mola (Motion), P/Invoke, IPC
-    Services/   integrações com o Windows: mídia (SMTC), bateria, volume/microfone (Core Audio),
-                brilho (WMI + DDC/CI), Bluetooth, arquivos, notificações, câmera, ditado, clima, agenda, foco
-    Ai/         monitor de agentes: um adaptador independente por provedor (IAgentAdapter)
-    Ui/         janela da ilha, kit de estilos, páginas (uma por módulo) e janela de configurações
-Cada módulo é independente: desligue em Configurações > Módulos.
+<p align="center">
+  <a href="https://github.com/th-alves/TzIsland/releases/latest"><b>⬇️ Baixar a versão mais recente</b></a>
+  &nbsp;·&nbsp; Windows 10 e 11 (64 bits)
+</p>
 
-## Animação "estilo Apple"
-Tamanho, raio dos cantos, entrada do conteúdo e o indicador da barra inferior usam **molas amortecidas**
-(`Core/Motion.cs`), não curvas fixas: há overshoot sutil, a velocidade é preservada se você interromper
-(entrar e sair rápido não "trava"), e o conteúdo entra em cascata com atraso. O loop de animação só roda
-enquanto algo se move (consumo ocioso ≈ 0). Botões têm "squish" ao clicar e rolagem tem inércia.
-Para desligar tudo: Configurações > Aparência > Animações.
+---
 
-## Ambientação e fontes
-- Fonte Inter embutida (`Fonts/`, licença OFL em `Fonts/LICENSE-Inter.txt`).
-- Sons da Ambientação sintetizados em tempo real; para trocar por gravações, coloque `rain.mp3`, `forest.mp3`, `cafe.mp3`, `office.mp3`, `lofi.mp3`, `fire.mp3`, `stream.mp3` ou `waves.mp3` na pasta `Sounds\` ao lado do executável.
+## ✨ O que é
 
-## Linha de comando (scripts e hooks)
-    TzIsland.exe --notify "Título" "Texto"
-    TzIsland.exe --agent claude --state working|needs_input|done|idle --message "..." [--progress 40]
-                 [--usage-session 62 --usage-weekly 30]
+O TzIsland fica discreto no topo da tela, mostrando a música tocando, o timer ou uma notificação.
+Passe o mouse ou clique e ele se expande em um painel com tudo o que você usa no dia a dia,
+sem abrir janelas nem tirar o foco do que você está fazendo.
 
-## Monitoramento de agentes de IA (sem dados inventados)
-O app mostra apenas o que consegue **de fato** saber:
-- **Processo aberto**: Claude Code, Codex, Cursor, Ollama, LM Studio.
-- **Ollama / LM Studio / endpoints próprios**: consulta HTTP local (`/api/ps`, `/v1/models`) — mostra se está online e os modelos carregados.
-- **Claude Code**: além do processo, infere "trabalhando" pela escrita nos arquivos de sessão (marcado como *inferido*).
-- **Estado exato (trabalhando / precisa de você / concluído)**: via **hooks**, que chamam o `--agent` acima.
-- **Limites de uso (anéis de sessão/semana)**: não existe API pública e oficial para isso nessas ferramentas, então os anéis
-  ficam como "—" até que *você* alimente com `--usage-session/--usage-weekly` a partir de uma fonte que você tenha.
-  Com valores recebidos o app alerta em 80% e 95% e avisa quando o limite de sessão renova.
+## 🧩 Recursos
 
-### Exemplos de hooks (confira o formato atual na documentação de cada ferramenta)
-Claude Code (`~/.claude/settings.json`, eventos `UserPromptSubmit`, `Notification` e `Stop`), comando de cada hook:
-    "C:\Users\VOCE\AppData\Local\Programs\TzIsland\TzIsland.exe" --agent claude --state working
-    "C:\...\TzIsland.exe" --agent claude --state needs_input --message "Precisa da sua ação"
-    "C:\...\TzIsland.exe" --agent claude --state done
-Codex (`~/.codex/config.toml`):
-    notify = ["C:\\...\\TzIsland.exe", "--agent", "codex", "--state", "done"]
+| | Módulo | O que faz |
+|---|---|---|
+| 🏠 | **Início** | Resumo do dia: clima, agenda, música e atalhos, com cards que você reorganiza |
+| 🎵 | **Mídia** | Controla Spotify, YouTube e outros players, com capa e letra sincronizada |
+| ⏱️ | **Foco** | Pomodoro e timer; durante o foco, as notificações esperam |
+| 🌊 | **Ambientação** | Sons relaxantes: chuva, floresta, café, lareira, ondas… |
+| ✉️ | **Inbox** | Notificações do Windows reunidas em um só lugar |
+| ✏️ | **Produtividade** | Notas com formatação (negrito, listas, cores) e tarefas |
+| 📋 | **Área de transferência** | Histórico do que você copiou |
+| 🎚️ | **Mixer de volume** | Volume de cada aplicativo separadamente |
+| 🖥️ | **Sistema** | Wi‑Fi, Bluetooth, brilho, microfone e a **bateria dos seus fones, mouse e teclado** |
+| 📁 | **Arquivos** | Arquivos recentes e downloads à mão |
+| 🤖 | **Agentes de IA** | Acompanha o que seus assistentes de IA estão fazendo |
+| 🎙️ | **Ditado** e 📷 **Mirror** | Fale para digitar e veja sua câmera rapidinho |
 
-## Privacidade
-Tudo local em `%AppData%\TzIsland`. Internet apenas para clima (Open-Meteo) e links ICS que você configurar.
-Câmera só enquanto o Mirror está ligado; microfone só no ditado; nada é gravado ou enviado.
+Cada módulo pode ser ligado, desligado e reordenado em **Configurações → Módulos**.
+
+## 💫 Detalhes que fazem diferença
+
+- **Animações com física de mola**, fluidas como no iPhone
+- **Some sozinho** em jogos, vídeos em tela cheia e capturas de tela
+- **Atualiza sozinho**: quando sai uma versão nova, ele avisa e instala
+- **Leve**: quase zero de CPU quando está parado
+- Visual escuro e minimalista, em **português**
+
+## 🚀 Como instalar
+
+1. Baixe o **`TzIsland-win-Setup.exe`** na [página de versões](https://github.com/th-alves/TzIsland/releases/latest).
+2. Abra o arquivo. Ele instala e já inicia a ilha no topo da tela.
+3. Clique com o botão direito no ícone perto do relógio para abrir as **Configurações**.
+
+> Prefere não instalar? Baixe o **`TzIsland-win-Portable.zip`**, extraia e rode o `TzIsland.exe`.
+>
+> Se o Windows mostrar "O Windows protegeu o computador", clique em **Mais informações → Executar assim mesmo**.
+
+## ❓ Perguntas rápidas
+
+**A bateria do meu fone não aparece.** Nem todo aparelho informa a bateria ao Windows. Se ela também não aparece em
+*Configurações do Windows → Bluetooth e dispositivos*, o aparelho não envia essa informação.
+
+**Como desinstalo?** Em *Configurações do Windows → Aplicativos*, procure **TzIsland** e clique em Desinstalar.
+
+**Encontrei um problema ou tenho uma ideia.** Abra uma [issue](https://github.com/th-alves/TzIsland/issues). Toda sugestão é bem-vinda!
+
+---
+
+<p align="center">
+  Feito com 💜 por <b>Thigas</b> · C# · WPF · .NET 8<br>
+  <sub>Quer compilar ou contribuir? Veja o <a href="docs/DESENVOLVIMENTO.md">guia de desenvolvimento</a>.</sub>
+</p>
