@@ -1,0 +1,46 @@
+release: TzIsland 2.4.2 — letras, timer com segundos, barra e Início organizáveis, Velopack
+
+Sincroniza o repositório com a versão local (v2.3 → v2.4.2): traz tudo que
+estava só na máquina de desenvolvimento e as correções desta rodada.
+
+Correções (2.4.1 / 2.4.2)
+- Letra da música voltou a aparecer: a cor de fundo das linhas estava sem "#"
+  ("B3050507"), o BrushConverter lançava FormatException ("Token is not valid")
+  dentro de LyricsPane.SetLines e a página mostrava "Sem conexão com o serviço
+  de letras", embora o LRCLIB respondesse normalmente
+- Letra legível e centralizada: a linha cantada fica no meio vertical do painel
+  (antes ficava presa no topo e cortada), com fundo translúcido, sombra e
+  esmaecimento só nas bordas; a posição se recalcula quando o painel muda de tamanho
+- Ilha não some mais ao tirar print: com "Em tela inteira: Ocultar", a camada de
+  captura (Win+Shift+S / ScreenClippingHost, Ferramenta de Captura, ShareX,
+  Greenshot, Lightshot, Snagit, PicPick, Gyazo…) era confundida com app em tela
+  cheia; agora o processo da janela em primeiro plano é verificado
+- Temporizador com segundos: rolar o mouse sobre os minutos ou sobre os segundos
+  ajusta cada parte (Shift = de 5 em 5); a dica fica abaixo dos números, não
+  mais por trás deles
+- Armazenamento local: texto genérico, sem expor o caminho do perfil do usuário
+
+Organização
+- Barra inferior organizável: Configurações → Módulos com setas ‹ › por módulo e
+  "Restaurar ordem padrão da barra" (Settings.NavOrder, Modules.Order/Move)
+- Cartões do Início organizáveis: mostrar/ocultar e reordenar (HomeOrder,
+  HomeHidden, HomeWidgets); "Tocando agora" sempre ocupa 2 colunas
+- Módulos e cartões novos entram no fim da ordem salva
+
+Recursos da v2.3/v2.4 que ainda não estavam no repositório
+- Estilos de animação de abrir/fechar (Core/AnimProfiles.cs)
+- Letra sincronizada via LRCLIB com cache em disco (Services/LyricsService.cs)
+- Histórico da área de transferência (ClipboardService, ClipboardPage)
+- Download ao vivo na pílula (DownloadMonitor)
+- Sons opcionais de abrir/fechar (SoundFx)
+- Gestos na ilha recolhida, próximo compromisso, cor dinâmica da capa,
+  "não perturbar" durante o Pomodoro, mídia escutando todas as sessões
+
+Instalação e atualização
+- Velopack substitui o Inno Setup: VelopackApp na inicialização, UpdateService
+  lendo os Releases de th-alves/TzIsland, docs/VELOPACK.md
+- release.ps1 / release.cmd: versão no .csproj, publish, vpk pack e upload do
+  Release no GitHub
+- README: .NET 8 e instruções de empacotamento com Velopack
+
+Validado com dotnet build/publish (0 erros).
