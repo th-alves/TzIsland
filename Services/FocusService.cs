@@ -46,10 +46,22 @@ public sealed class PomodoroClock : ClockBase
 
 public sealed class CountdownClock : ClockBase
 {
-    public int Minutes => Math.Clamp(Settings.Current.TimerMinutes, 1, 180);
-    public TimeSpan Total => TimeSpan.FromMinutes(Minutes);
+    public int Minutes => Math.Clamp(Settings.Current.TimerMinutes, 0, 180);
+    public int Seconds => Math.Clamp(Settings.Current.TimerSeconds, 0, 59);
+    /// <summary>Duração total configurada (mínimo de 5 s).</summary>
+    public TimeSpan Total => TimeSpan.FromSeconds(Math.Max(5, Minutes * 60 + Seconds));
     public TimeSpan Remaining { get { var r = Total - Elapsed; return r < TimeSpan.Zero ? TimeSpan.Zero : r; } }
     public double Progress => Math.Clamp(Elapsed.TotalSeconds / Total.TotalSeconds, 0, 1);
+    /// <summary>Duração no formato usado no aviso de fim (ex.: "1 min 30 s").</summary>
+    public string TotalLabel
+    {
+        get
+        {
+            int m = (int)Total.TotalMinutes, s = Total.Seconds;
+            if (m == 0) return $"{s} s";
+            return s == 0 ? $"{m} min" : $"{m} min {s} s";
+        }
+    }
 }
 
 public sealed class StopwatchClock : ClockBase
@@ -84,13 +96,19 @@ public sealed class FocusService
     // ---------- Timer ----------
     public void TimerToggle() { if (Timer.Running) Timer.Pause(); else Timer.Start(); Changed(); }
     public void TimerReset() { Timer.Clear(); Changed(); }
-    public void TimerSet(int minutes)
+    public void TimerSet(int minutes, int seconds = 0)
     {
-        Settings.Current.TimerMinutes = Math.Clamp(minutes, 1, 180);
+        int total = Math.Clamp(minutes * 60 + Math.Clamp(seconds, 0, 59), 5, 180 * 60 + 59);
+        Settings.Current.TimerMinutes = total / 60;
+        Settings.Current.TimerSeconds = total % 60;
         Settings.Save();
         if (!Timer.Running) Timer.Clear();
         Changed();
     }
+
+    /// <summary>Ajusta o timer por partes (rolagem sobre os minutos ou sobre os segundos).</summary>
+    public void TimerAdjust(int deltaMinutes, int deltaSeconds)
+        => TimerSet(Timer.Minutes + deltaMinutes, Timer.Seconds + deltaSeconds);
 
     // ---------- Cronômetro ----------
     public void WatchToggle() { if (Watch.Running) Watch.Pause(); else Watch.Start(); Changed(); }
@@ -100,6 +118,7 @@ public sealed class FocusService
     void Changed()
     {
         if (AnyRunning) { if (!_t.IsEnabled) _t.Start(); } else _t.Stop();
+        Hub.EvaluateDnd();     // iniciou/pausou/zerou o foco: segura ou libera os banners
         Tick?.Invoke();
     }
 
@@ -114,7 +133,7 @@ public sealed class FocusService
     void CompleteTimer()
     {
         System.Media.SystemSounds.Asterisk.Play();
-        Hub.Notify("Timer", "Timer finalizado", $"{Timer.Minutes} min concluídos.", true);
+        Hub.Notify("Timer", "Timer finalizado", $"{Timer.TotalLabel} concluídos.", true, bypassDnd: true);   // é um alarme que o próprio usuário armou
         Timer.Clear();
         Changed();
     }
@@ -131,8 +150,11 @@ public sealed class FocusService
         if (notify)
         {
             System.Media.SystemSounds.Asterisk.Play();
-            Hub.Notify("Foco", wasFocus ? "Sessão de foco concluída" : "Pausa terminou",
-                wasFocus ? $"Hora de descansar ({Pomo.PhaseLabel.ToLowerInvariant()})." : "Vamos voltar ao foco.", true);
+            // Fim do foco: o próprio aviso carrega o resumo do que chegou enquanto você estava concentrado.
+            var held = wasFocus ? Hub.TakeHeld() : new List<InboxItem>();
+            string txt = wasFocus ? $"Hora de descansar ({Pomo.PhaseLabel.ToLowerInvariant()})." : "Vamos voltar ao foco.";
+            if (held.Count > 0) txt += held.Count == 1 ? " 1 notificação esperando no Inbox." : $" {held.Count} notificações esperando no Inbox.";
+            Hub.Notify("Foco", wasFocus ? "Sessão de foco concluída" : "Pausa terminou", txt, true, bypassDnd: true);
         }
         if (S.AutoStartNextPhase) Pomo.Start();
         Changed();

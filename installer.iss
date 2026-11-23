@@ -2,7 +2,7 @@
 ; Antes: dotnet publish -c Release -o publish
 [Setup]
 AppName=TzIsland
-AppVersion=2.0.0
+AppVersion=2.4.0
 AppPublisher=Thigas
 DefaultDirName={autopf}\TzIsland
 DefaultGroupName=TzIsland

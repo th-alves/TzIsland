@@ -123,7 +123,7 @@ public sealed class AmbiencePage : PageBase
 
         _stop = new Button { Style = K.Fill, Height = 34, Background = K.Hex("#1FFF453A"), Tag = new CornerRadius(12), Margin = new Thickness(0, 8, 0, 0) };
         var sp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-        sp.Children.Add(K.Glyph("\uE71A", 10, K.Red).M(0, 0, 8, 0)); sp.Children.Add(_stopText.Vc());
+        sp.Children.Add(new Border { Width = 9, Height = 9, CornerRadius = new CornerRadius(2.5), Background = K.Red, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) }); sp.Children.Add(_stopText.Vc());
         _stop.Content = sp;
         _stop.Click += (_, _) => A.StopAll();
         mix.Children.Add(_stop);

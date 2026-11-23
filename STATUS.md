@@ -93,7 +93,30 @@ Todos os itens abaixo precisam ser testados por você no primeiro `dotnet run`; 
 - ✅ Caracteres estranhos em "Mix" e "Parar tudo": o código dos ícones tinha barra invertida duplicada
 - ✅ **Sistema** refeito no estilo da Início: caixa de itens ativáveis (Bateria, Wi-Fi, Bluetooth, Microfone), caixa de controles (Volume, Brilho, Contraste) e caixa de dispositivos conectados. Wi-Fi e Bluetooth ligam/desligam de verdade pelos rádios do Windows
 - ✅ Conjunto de ícones vetoriais novo (35) e ícone de bateria desenhado em código (preenchimento proporcional, cor por nível, raio ao carregar)
+## Etapa 12 — Estilos de animação e mídia (v2.3)
+- ✅ **Estilo da animação ao abrir/fechar** (Configurações → Efeitos e Fluidez): Fluida (padrão), Elástica, Cristal, Precisa e Bolha. Cada estilo é um perfil de molas em `Core/AnimProfiles.cs` (forma, conteúdo, cascata dos cartões e recolher). Ao trocar, a ilha faz uma prévia sozinha; há também o botão "Pré-visualizar animação"
+- ✅ Mídia: o app agora escuta **todas** as sessões do Windows e prefere a que está tocando (antes só a "sessão atual", que podia ser um Spotify pausado enquanto o vídeo tocava no Chrome). Sem capa, a página de mídia mostra um ícone de vídeo/música
+## Etapa 13 — Gestos, downloads, agenda, letras, cor da capa, clipboard, foco e sons (v2.4)
+- ✅ **Hover corrigido:** o padrão agora é abrir só no **clique**. Configurações → Comportamento tem um seletor único "Abrir a ilha ao: Clicar / Passar o mouse / Os dois" (antes eram duas caixas independentes e o hover continuava ligado). Quem já usava "clicar" é migrado automaticamente (uma vez, via `SettingsVersion`)
+- ✅ **Gestos na ilha recolhida:** rolar = volume do sistema (3% por passo, com HUD na própria pílula) · botão do meio = play/pause · arrastar de lado = próxima/anterior (com "empurrão" elástico). Com mídia tocando, para **mover** a ilha segure **Ctrl** e arraste
+- 🟡 **Download ao vivo:** a pílula mostra ícone + tamanho baixado + velocidade e uma linha fina animada. **Sem porcentagem:** o navegador não informa o tamanho final à pasta, então a barra é "em andamento" (indeterminada) e só enche (verde) quando o arquivo realmente termina. Detecta .crdownload (Chrome/Edge/Brave), .part (Firefox), .opdownload (Opera)
+- ✅ **Próximo compromisso:** a pílula avisa "Título · em 9 min" e, nos últimos 5 min, contagem regressiva mm:ss em laranja; "agora" por 1 min. Antecedência configurável (0 = desligado). Eventos de dia inteiro são ignorados. Limitação herdada: RRULE/TZID ainda não tratados
+- ✅ **Letra sincronizada** (LRCLIB, gratuito, sem chave): botão no canto da página de Mídia; linha atual centralizada com rolagem em mola; cache em disco; faz fallback para letra sem tempo; só envia título/artista/duração. Pode ser desligada em Privacidade
+- ✅ **Cor dinâmica da capa:** cor dominante "viva" extraída da capa (matiz mais pesado por saturação) → espectro e barra de progresso da página de Mídia, espectro e HUD da pílula, brilho atrás da capa. Transição suave entre faixas
+- ✅ **Histórico da área de transferência** (nova seção, ícone de prancheta): texto, imagens e arquivos; fixar/desafixar, remover, filtro Tudo/Fixados; clique copia, duplo clique cola (Ctrl+V na janela ativa). Só os **fixados** vão para disco; conteúdo marcado como privado por gerenciadores de senha é ignorado
+- ✅ **Não perturbar no Pomodoro:** durante o foco os banners ficam retidos (as notificações seguem para o Inbox). No fim, um único aviso com o resumo. Alarme do Timer, fim do foco e bateria crítica não são retidos
+- ✅ **Sons de abrir/fechar:** opcionais (desligados por padrão), sintetizados em código, volume ajustável e botão "Testar som"
+- ✅ **Atualização pelo GitHub:** verifica os Releases de th-alves/TzIsland (a cada N horas), avisa na ilha e, ao tocar no banner, baixa o `TzIsland-Setup.exe` do Release e atualiza sozinho. Configurações → Comportamento → Atualizações
+- ⚠️ Validação: sintaxe de todos os arquivos conferida com Roslyn; **compilação WPF e execução não foram feitas** (sem Windows aqui). Rode `dotnet build` e me mande qualquer erro
 ## Pendente
 - ⏳ Empacotamento MSIX (para notificações do Windows)
 - ⏳ Reordenar/ocultar ícones da barra inferior por arrastar
 - ⏳ Testes automatizados
+
+## Etapa 14 — Correções e organização (v2.4.1 / v2.4.2)
+- ✅ **Temporizador com segundos:** role o mouse sobre os minutos ou sobre os segundos para ajustar (Shift = de 5 em 5). A dica fica abaixo dos números
+- ✅ **Barra inferior organizável:** Configurações → Módulos, setas ‹ › em cada módulo e "Restaurar ordem padrão da barra"
+- ✅ **Cartões do Início organizáveis:** mostrar/ocultar e reordenar em Configurações → Módulos; "Tocando agora" sempre ocupa 2 colunas
+- ✅ **Letra da música:** volta a aparecer (a cor de fundo sem `#` derrubava a montagem das linhas e o app mostrava "Sem conexão"); linha cantada centralizada no painel, com fundo próprio e sombra
+- ✅ **Ilha não some no print:** a camada de captura (Win+Shift+S, ShareX, Greenshot, Lightshot, Snagit…) não é mais tratada como app em tela cheia
+- ✅ Armazenamento local: texto genérico, sem mostrar o caminho do perfil do usuário

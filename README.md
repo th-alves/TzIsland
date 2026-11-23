@@ -1,12 +1,13 @@
 # TzIsland
 
-Dynamic Island para Windows 10/11 (x64). C# · WPF · .NET 10 ou superior.
+Dynamic Island para Windows 10/11 (x64). C# · WPF · .NET 8.
 
 ## Como compilar e instalar
     dotnet run                                  # testar
     dotnet publish -c Release -o publish        # gera publish\TzIsland.exe (arquivo único)
-Depois abra `installer.iss` no Inno Setup e compile → `TzIsland-Setup.exe`.
-A desinstalação remove o app e a pasta de dados (`%AppData%\TzIsland`).
+    tools\vpk.exe pack -u TzIsland -v 2.4.2 -p publish -e TzIsland.exe -c win -o releases
+Rode `releases\TzIsland-win-Setup.exe` para instalar. Detalhes de empacotamento, publicação no
+GitHub Releases e atualização automática (Velopack): **docs/VELOPACK.md**. O `installer.iss` (Inno) ficou obsoleto.
 
 ## Arquitetura
     Core/       configurações (JSON), barramento de eventos (Hub), motor de mola (Motion), P/Invoke, IPC

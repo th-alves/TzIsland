@@ -9,9 +9,12 @@ public sealed class MediaService
 {
     GlobalSystemMediaTransportControlsSessionManager? _mgr;
     GlobalSystemMediaTransportControlsSession? _s;
+    readonly List<GlobalSystemMediaTransportControlsSession> _attached = new();
 
     public string Title = "", Artist = "", Album = "", App = "";
     public BitmapImage? Cover;
+    /// <summary>Cor dominante da capa, já ajustada para ficar viva sobre fundo preto (branco quando não há capa ou a opção está desligada).</summary>
+    public Color Accent = Colors.White;
     public bool HasSession, Playing, Shuffle, CanShuffle, CanRepeat, CanPrev = true, CanNext = true;
     public MediaPlaybackAutoRepeatMode Repeat = MediaPlaybackAutoRepeatMode.None;
     public event Action? Changed;
@@ -35,29 +38,52 @@ public sealed class MediaService
         {
             _mgr = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync();
             _mgr.CurrentSessionChanged += (_, _) => Ui.InvokeAsync(Attach);
+            _mgr.SessionsChanged += (_, _) => Ui.InvokeAsync(Attach);
             Attach();
         }
         catch (Exception e) { Log.Write(e); }
     }
 
+    /// <summary>
+    /// O Windows tem UMA "sessão atual", mas navegadores (YouTube) e players convivem: se o Spotify estiver aberto/pausado,
+    /// ele pode continuar sendo a sessão atual enquanto o vídeo toca no Chrome. Por isso escutamos TODAS as sessões
+    /// e damos preferência à que está de fato tocando.
+    /// </summary>
     void Attach()
     {
-        if (_s != null)
+        foreach (var o in _attached) { o.MediaPropertiesChanged -= OnProps; o.PlaybackInfoChanged -= OnPlayback; }
+        _attached.Clear();
+        try
         {
-            _s.MediaPropertiesChanged -= OnProps;
-            _s.PlaybackInfoChanged -= OnPlayback;
+            if (_mgr != null)
+                foreach (var n in _mgr.GetSessions()) { n.MediaPropertiesChanged += OnProps; n.PlaybackInfoChanged += OnPlayback; _attached.Add(n); }
         }
-        _s = _mgr?.GetCurrentSession();
-        if (_s != null)
-        {
-            _s.MediaPropertiesChanged += OnProps;
-            _s.PlaybackInfoChanged += OnPlayback;
-        }
+        catch (Exception e) { Log.Write(e); }
+        _s = Pick();
         _ = RefreshAsync();
     }
 
-    void OnProps(GlobalSystemMediaTransportControlsSession s, MediaPropertiesChangedEventArgs a) => _ = Ui.InvokeAsync(RefreshAsync);
-    void OnPlayback(GlobalSystemMediaTransportControlsSession s, PlaybackInfoChangedEventArgs a) => _ = Ui.InvokeAsync(RefreshAsync);
+    GlobalSystemMediaTransportControlsSession? Pick()
+    {
+        GlobalSystemMediaTransportControlsSession? cur = null;
+        try { cur = _mgr?.GetCurrentSession(); } catch { }
+        try
+        {
+            var playing = _attached.Where(x => x.GetPlaybackInfo().PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing).ToList();
+            if (playing.Count > 0)
+            {
+                var same = cur == null ? null : playing.FirstOrDefault(x => x.SourceAppUserModelId == cur.SourceAppUserModelId);
+                return same ?? playing[0];
+            }
+        }
+        catch (Exception e) { Log.Write(e); }
+        return cur ?? _attached.FirstOrDefault();
+    }
+
+    void OnProps(GlobalSystemMediaTransportControlsSession s, MediaPropertiesChangedEventArgs a) => _ = Ui.InvokeAsync(Reselect);
+    void OnPlayback(GlobalSystemMediaTransportControlsSession s, PlaybackInfoChangedEventArgs a) => _ = Ui.InvokeAsync(Reselect);
+
+    Task Reselect() { _s = Pick(); return RefreshAsync(); }
 
     async Task RefreshAsync()
     {
@@ -65,7 +91,7 @@ public sealed class MediaService
         HasSession = s != null;
         if (s == null)
         {
-            Title = Artist = Album = App = ""; Cover = null; Playing = false;
+            Title = Artist = Album = App = ""; Cover = null; Playing = false; Accent = Colors.White;
             Changed?.Invoke();
             return;
         }
@@ -75,6 +101,7 @@ public sealed class MediaService
             Title = p.Title ?? ""; Artist = p.Artist ?? ""; Album = p.AlbumTitle ?? "";
             App = Friendly(s.SourceAppUserModelId);
             Cover = await LoadAsync(p.Thumbnail);
+            Accent = Settings.Current.DynamicCoverColor && Cover != null ? CoverColor.Dominant(Cover) : Colors.White;
             var info = s.GetPlaybackInfo();
             Playing = info.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
             Shuffle = info.IsShuffleActive ?? false;
@@ -147,5 +174,69 @@ public sealed class MediaService
             _ => MediaPlaybackAutoRepeatMode.None
         };
         await _s.TryChangeAutoRepeatModeAsync(next);
+    }
+}
+
+/// <summary>Extrai a cor dominante "viva" da capa do álbum.</summary>
+public static class CoverColor
+{
+    public static Color Dominant(BitmapSource src)
+    {
+        try
+        {
+            double sc = 48.0 / Math.Max(src.PixelWidth, src.PixelHeight);
+            BitmapSource small = sc < 1 ? new TransformedBitmap(src, new ScaleTransform(sc, sc)) : src;
+            var bgra = new FormatConvertedBitmap(small, PixelFormats.Bgra32, null, 0);
+            int w = bgra.PixelWidth, h = bgra.PixelHeight, stride = w * 4;
+            var px = new byte[stride * h];
+            bgra.CopyPixels(px, stride, 0);
+
+            const int Bins = 12;
+            var wsum = new double[Bins]; var rs = new double[Bins]; var gs = new double[Bins]; var bs = new double[Bins];
+            double total = 0, chroma = 0, lumSum = 0; int cnt = 0;
+            for (int i = 0; i + 3 < px.Length; i += 4)
+            {
+                if (px[i + 3] < 128) continue;
+                double b = px[i] / 255.0, g = px[i + 1] / 255.0, r = px[i + 2] / 255.0;
+                double mx = Math.Max(r, Math.Max(g, b)), mn = Math.Min(r, Math.Min(g, b)), d = mx - mn;
+                cnt++; lumSum += mx; total += 1;
+                double sat = mx <= 0 ? 0 : d / mx;
+                if (sat < 0.22 || mx < 0.2) continue;           // ignora cinzas e quase-pretos
+                double hue = d == 0 ? 0 : mx == r ? ((g - b) / d + 6) % 6 : mx == g ? (b - r) / d + 2 : (r - g) / d + 4;
+                int bin = Math.Min(Bins - 1, (int)(hue / 6 * Bins));
+                double wgt = sat * (0.35 + mx);                 // cores saturadas e claras pesam mais
+                wsum[bin] += wgt; rs[bin] += r * wgt; gs[bin] += g * wgt; bs[bin] += b * wgt; chroma += wgt;
+            }
+            if (cnt == 0) return Colors.White;
+            int best = 0;
+            for (int k = 1; k < Bins; k++) if (wsum[k] > wsum[best]) best = k;
+            if (chroma < cnt * 0.04 || wsum[best] <= 0)         // capa praticamente cinza/preta: acento neutro
+            {
+                byte v = (byte)Math.Clamp(170 + lumSum / cnt * 85, 170, 245);
+                return Color.FromRgb(v, v, v);
+            }
+            double rr = rs[best] / wsum[best], gg = gs[best] / wsum[best], bb = bs[best] / wsum[best];
+            return Vivid(rr, gg, bb);
+        }
+        catch { return Colors.White; }
+    }
+
+    /// <summary>Garante saturação e brilho bons sobre o preto, mantendo o matiz.</summary>
+    static Color Vivid(double r, double g, double b)
+    {
+        double mx = Math.Max(r, Math.Max(g, b)), mn = Math.Min(r, Math.Min(g, b)), d = mx - mn;
+        double h = d == 0 ? 0 : mx == r ? ((g - b) / d + 6) % 6 : mx == g ? (b - r) / d + 2 : (r - g) / d + 4;
+        double s = Math.Clamp(mx <= 0 ? 0 : d / mx, 0.5, 0.92), v = Math.Clamp(mx, 0.82, 1.0);
+        double c = v * s, x = c * (1 - Math.Abs(h % 2 - 1)), m = v - c, r1, g1, b1;
+        switch ((int)h % 6)
+        {
+            case 0: (r1, g1, b1) = (c, x, 0); break;
+            case 1: (r1, g1, b1) = (x, c, 0); break;
+            case 2: (r1, g1, b1) = (0, c, x); break;
+            case 3: (r1, g1, b1) = (0, x, c); break;
+            case 4: (r1, g1, b1) = (x, 0, c); break;
+            default: (r1, g1, b1) = (c, 0, x); break;
+        }
+        return Color.FromRgb((byte)((r1 + m) * 255), (byte)((g1 + m) * 255), (byte)((b1 + m) * 255));
     }
 }

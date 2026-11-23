@@ -75,7 +75,7 @@ public sealed class IslandWindow : Window
 
     readonly Led _ledIdle = new(Color.FromRgb(0xFF, 0x9F, 0x0A)), _ledActive = new(Color.FromRgb(0x30, 0xD1, 0x58));
     // Recolhida com atividade ao vivo: mídia (ícone + espectro) e/ou timer em andamento (ícone + tempo).
-    enum Live { None, Media, Timer, Both }
+    enum Live { None, Media, Timer, Both, Download, Agenda }
     readonly Grid _miniLive = new() { Opacity = 0, IsHitTestVisible = false };
     readonly StackPanel _liveL = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 0, 0) };
     readonly StackPanel _liveR = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 18, 0) };
@@ -87,6 +87,33 @@ public sealed class IslandWindow : Window
     readonly Grid _ledHost = new() { Width = 26, Height = 26, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0), IsHitTestVisible = false };
     bool? _ledOn;
     bool _ledPulsing;
+
+    // Download ao vivo: linha fina no fundo da pílula (indeterminada, pois o navegador não informa o tamanho final)
+    readonly Grid _dlBar = new() { Height = 3, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(24, 0, 24, 4), Opacity = 0, IsHitTestVisible = false };
+    readonly Border _dlTrack = new() { CornerRadius = new CornerRadius(1.5), Background = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)) };
+    readonly Border _dlFill = new() { CornerRadius = new CornerRadius(1.5), Background = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
+    readonly TranslateTransform _dlShift = new();
+    bool _dlRunning, _dlFinishing;
+    readonly TextBlock _aTitle = K.T("", 12.5, Brushes.White, true), _aTime = K.Num("", 12.5, K.Orange);
+    readonly Border _aIcon = new() { VerticalAlignment = VerticalAlignment.Center };
+    string _agendaKey = ""; bool _agendaSoon;
+
+    // HUD de gestos (volume / play / faixa) dentro da pílula recolhida
+    readonly Grid _hud = new() { Opacity = 0, IsHitTestVisible = false, Background = new SolidColorBrush(Color.FromArgb(244, 0, 0, 0)) };
+    readonly Grid _hudBar = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+    readonly TextBlock _hudLabel = K.T("", 12, Brushes.White, true);
+    readonly Border _dIcon = new() { VerticalAlignment = VerticalAlignment.Center };
+    readonly TextBlock _dText = K.Num("", 12, Brushes.White);
+    readonly SolidColorBrush _accent = new(Colors.White);
+    Color _accentTarget = Colors.White;
+    double _hudFrac;
+    readonly Border _hudIcon = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 10, 0) };
+    readonly Border _hudTrack = new() { Height = 4, CornerRadius = new CornerRadius(2), Background = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)), VerticalAlignment = VerticalAlignment.Center };
+    readonly Border _hudFill = new() { Height = 4, CornerRadius = new CornerRadius(2), Background = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center };
+    readonly TextBlock _hudText = K.Num("", 11.5, Brushes.White);
+    readonly DispatcherTimer _hudT = new() { Interval = TimeSpan.FromMilliseconds(1100) };
+    bool _swiped;
+    readonly TranslateTransform _miniShift = new();
 
     // Banner (notification pulse)
     readonly TextBlock _bTitle = K.T("", 13, K.Fg, true), _bText = K.T("", 12, K.Dim), _bIcon = K.T("", 14, Brushes.White, true);
@@ -136,6 +163,8 @@ public sealed class IslandWindow : Window
 
     static AppSettings S => Settings.Current;
     bool Floating => S.Style == IslandStyle.Floating;
+    double Ear => Floating ? 0 : 11;
+    double MiniEar => Floating ? 0 : Math.Min(11, S.CollapsedHeight * 0.3);
 
     public IslandWindow()
     {
@@ -157,15 +186,21 @@ public sealed class IslandWindow : Window
         SourceInitialized += OnSourceInit;
         Loaded += (_, _) => { Place(); SetState(St.Collapsed, true); RefreshMini(); };
         Settings.Changed += OnSettingsChanged;
+        Settings.PreviewAnimation += () => Dispatcher.InvokeAsync(PreviewAnim, DispatcherPriority.Background);
         Hub.Banner += ShowBanner;
         Hub.Inbox.CollectionChanged += (_, _) => UpdateBadge();
         Svc.Media.Changed += RefreshMini; Svc.Battery.Changed += RefreshMini; Svc.Audio.MicChanged += RefreshMini;
         Svc.Focus.Tick += RefreshMini; Svc.Agents.Changed += RefreshMini; Svc.Camera.StateChanged += RefreshMini;
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += (_, _) => Dispatcher.InvokeAsync(Place);
 
-        _hoverT.Tick += (_, _) => { _hoverT.Stop(); if (_island.IsMouseOver) Expand(); };
+        _hoverT.Tick += (_, _) => { _hoverT.Stop(); if (S.ExpandOnHover && _island.IsMouseOver) Expand(); };
         _collapseT.Tick += OnCollapseTick;
         _bannerT.Tick += (_, _) => { _bannerT.Stop(); if (_st == St.Banner && !_island.IsMouseOver) SetState(St.Collapsed); };
+        _hudT.Tick += (_, _) => { _hudT.Stop(); FadeHud(false); };
+        Svc.Downloads.Changed += () => Dispatcher.InvokeAsync(RefreshMini);
+        Svc.Calendar.Changed += () => Dispatcher.InvokeAsync(RefreshMini);
+        Hub.HeldChanged += () => Dispatcher.InvokeAsync(RefreshMini);
+        Svc.Media.Changed += ApplyAccent;
         _clockT.Tick += (_, _) => { if (_st == St.Collapsed) RefreshMini(); };
         _clockT.Start();
         _fsT.Tick += (_, _) => CheckFullscreen();
@@ -200,6 +235,29 @@ public sealed class IslandWindow : Window
         _tText.VerticalAlignment = VerticalAlignment.Center; _tExtra.VerticalAlignment = VerticalAlignment.Center; _tExtra.Margin = new Thickness(4, 1, 0, 0);
         _miniLive.Children.Add(_liveL); _miniLive.Children.Add(_liveR);
         _mini.Children.Add(_miniLive);
+        _mini.RenderTransform = _miniShift;
+        // barra de download
+        _dlFill.RenderTransform = _dlShift;
+        _dlBar.Children.Add(_dlTrack); _dlBar.Children.Add(_dlFill);
+        K.RoundClip(_dlBar, 1.5);
+        _mini.Children.Add(_dlBar);
+        // agenda recolhida (usa _liveL / _liveR via LayoutLive)
+        _aTitle.VerticalAlignment = VerticalAlignment.Center; _aTitle.Margin = new Thickness(7, 0, 0, 0);
+        _aTime.VerticalAlignment = VerticalAlignment.Center;
+        // HUD
+        _hud.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _hud.ColumnDefinitions.Add(new ColumnDefinition { Width = K.GL("*") });
+        _hud.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _hud.Children.Add(_hudIcon);
+        _hudBar.Children.Add(_hudTrack); _hudBar.Children.Add(_hudFill);
+        _hudLabel.VerticalAlignment = VerticalAlignment.Center; _hudLabel.Visibility = Visibility.Collapsed; _hudLabel.TextTrimming = TextTrimming.CharacterEllipsis;
+        _hudBar.Children.Add(_hudLabel);
+        _hudBar.SizeChanged += (_, _) => UpdateHudFill();
+        _hud.Children.Add(_hudBar.At(col: 1));
+        _hudText.Margin = new Thickness(0, 0, 18, 0);
+        _hud.Children.Add(_hudText.At(col: 2).Vc());
+        _miniEq.Fill = _accent;
+        _mini.Children.Add(_hud);
 
         // Banner: [glowing badge] [title & text]
         _banner.HorizontalAlignment = HorizontalAlignment.Center; _banner.VerticalAlignment = VerticalAlignment.Top; _banner.Opacity = 0;
@@ -230,6 +288,8 @@ public sealed class IslandWindow : Window
 
         // Interaction events
         _island.MouseEnter += (_, _) => { _collapseT.Stop(); if (_st == St.Collapsed && S.ExpandOnHover && !_noExpand) { _hoverT.Interval = TimeSpan.FromMilliseconds(S.HoverDelayMs); _hoverT.Start(); } };
+        _island.MouseWheel += OnIslandWheel;
+        _island.MouseDown += OnIslandMiddle;
         _island.MouseLeave += (_, _) => { _hoverT.Stop(); if (_st == St.Expanded) ArmCollapse(); };
         _island.PreviewMouseMove += (_, _) => _activity = DateTime.Now;
         _island.PreviewMouseDown += OnPreviewDown;
@@ -280,6 +340,7 @@ public sealed class IslandWindow : Window
         Native.DwmSetWindowAttribute(_hwnd, 33, ref noRound, 4);   // No Windows 11 system rounding
         _src?.AddHook(WndProc);
         RegisterHotkeys();
+        try { Native.AddClipboardFormatListener(_hwnd); } catch (Exception clipErr) { Log.Write(clipErr); }
     }
 
     IntPtr WndProc(IntPtr hwnd, int msg, IntPtr w, IntPtr l, ref bool handled)
@@ -290,6 +351,7 @@ public sealed class IslandWindow : Window
             if (w.ToInt32() == 1) Toggle();
             else if (w.ToInt32() == 2) { OpenPage("dictation"); _ = Svc.Dictation.ToggleAsync(); }
         }
+        else if (msg == Native.WM_CLIPBOARDUPDATE) Svc.Clipboard.OnSystemUpdate();
         return IntPtr.Zero;
     }
 
@@ -348,8 +410,23 @@ public sealed class IslandWindow : Window
     }
 
     // ---------------- Settings synchronization ----------------
+    IslandAnim _lastAnim = Settings.Current.IslandAnim;
+    DispatcherTimer? _previewT;
+
+    /// <summary>Abre a ilha sozinha e fecha depois de um instante, para mostrar o estilo de animação escolhido.</summary>
+    void PreviewAnim()
+    {
+        if (_noExpand || !S.Animations) return;
+        _previewT?.Stop();
+        if (_st != St.Expanded) Expand();
+        _previewT = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2200) };
+        _previewT.Tick += (_, _) => { _previewT!.Stop(); if (!_island.IsMouseOver && _st == St.Expanded) Collapse(); };
+        _previewT.Start();
+    }
+
     void OnSettingsChanged()
     {
+        if (S.IslandAnim != _lastAnim) { _lastAnim = S.IslandAnim; Dispatcher.InvokeAsync(PreviewAnim, DispatcherPriority.Background); }
         ApplySettings();
         Place();
         RegisterHotkeys();
@@ -363,9 +440,13 @@ public sealed class IslandWindow : Window
         Width = Math.Max(S.ExpandedWidth, bannerW) + 120;
         Height = Math.Max(S.ExpandedHeight, bannerH) + 12 + 76;
         _island.Margin = new Thickness(0, Floating ? 10 : 0, 0, 0);
-        _exp.Width = S.ExpandedWidth; _exp.Height = S.ExpandedHeight;
-        _mini.Width = S.CollapsedWidth; _mini.Height = S.CollapsedHeight;
-        _banner.Width = bannerW; _banner.Height = bannerH;
+        // Clássico: os "ombros" côncavos comem ~11 px de cada lado do corpo da ilha; o conteúdo precisa respeitar isso
+        // (antes os ícones ficavam colados na borda). No modo flutuante nada muda.
+        _exp.Width = S.ExpandedWidth - 2 * Ear; _exp.Height = S.ExpandedHeight;
+        _mini.Width = S.CollapsedWidth - 2 * MiniEar; _mini.Height = S.CollapsedHeight;
+        _banner.Width = bannerW - 2 * Ear; _banner.Height = bannerH;
+        _navHost.Margin = new Thickness(18, 2, 18, Floating ? 10 : 15);
+        _pageHost.Margin = new Thickness(18, 14, 18, 2);
         _backdrop.Width = S.ExpandedWidth + S.BlurAmount * 2; _backdrop.Height = S.ExpandedHeight + S.BlurAmount; _backdrop.Margin = new Thickness(0, 0, 0, 0);
         ((BlurEffect)_backdrop.Effect).Radius = Math.Max(0.1, S.BlurAmount);
         ApplyLook();
@@ -409,13 +490,14 @@ public sealed class IslandWindow : Window
     {
         ["home"] = Ico.Path("home"), ["media"] = Ico.Path("music"), ["focus"] = Ico.Path("timer"), ["ambience"] = Ico.Path("waves"),
         ["inbox"] = Ico.Path("mail"), ["productivity"] = Ico.Path("pen"), ["system"] = Ico.Path("monitor"), ["files"] = Ico.Path("folder"),
-        ["mirror"] = Ico.Path("camera"), ["dictation"] = Ico.Path("mic")
+        ["clipboard"] = Ico.Path("clipboard"), ["mirror"] = Ico.Path("camera"), ["dictation"] = Ico.Path("mic")
     };
 
     void BuildNav()
     {
         _nav.Children.Clear(); _navBtns.Clear(); _navBrush.Clear(); _navScale.Clear(); _navCenter.Clear();
-        foreach (var m in Modules.All.Where(m => S.IsOn(m.Id)))
+        var order = Modules.Order().ToList();     // ordem escolhida pelo usuário (Configurações > Módulos)
+        foreach (var m in Modules.All.Where(m => S.IsOn(m.Id)).OrderBy(m => order.IndexOf(m.Id)))
         {
             var id = m.Id;
             // Botão do MESMO tamanho/raio da lente: o realce de hover coincide com ela e não vaza nos cantos.
@@ -468,7 +550,7 @@ public sealed class IslandWindow : Window
     // ---------------- Pages ----------------
     IPage? Make(string id) => id switch
     {
-        "home" => new HomePage(), "media" => new MediaPage(), "focus" => new FocusPage(), "ambience" => new AmbiencePage(), "inbox" => new InboxPage(), "productivity" => new ProductivityPage(),
+        "home" => new HomePage(), "media" => new MediaPage(), "focus" => new FocusPage(), "ambience" => new AmbiencePage(), "inbox" => new InboxPage(), "productivity" => new ProductivityPage(), "clipboard" => new ClipboardPage(),
         "system" => new SystemPage(), "files" => new FilesPage(), "ai" => new AiPage(), "mirror" => new MirrorPage(), "dictation" => new DictationPage(),
         _ => null
     };
@@ -544,7 +626,7 @@ public sealed class IslandWindow : Window
     }
 
     // ---------------- State transitions ----------------
-    double CollapsedWidthNow => S.CollapsedWidth + (_live == Live.Both ? 84 : 0);
+    double CollapsedWidthNow => S.CollapsedWidth + _live switch { Live.Both => 84, Live.Agenda => 110, Live.Download => 62, _ => 0 };
 
     (double w, double h, double r) Target(St s) => s switch
     {
@@ -557,6 +639,7 @@ public sealed class IslandWindow : Window
     {
         if (_st == s && !snap) return;
         var prev = _st; _st = s;
+        if (!snap && prev != s) { if (s == St.Expanded) SoundFx.Open(); else if (prev == St.Expanded) SoundFx.Close(); }
         var (w, h, r) = Target(s);
         bool exp = s == St.Expanded;
         bool instantOut = s == St.Collapsed && prev == St.Expanded && S.CollapseSpeed == CollapseMode.Instant;
@@ -577,34 +660,37 @@ public sealed class IslandWindow : Window
                     if (!_pageHost.Children.Contains(cur.View)) _pageHost.Children.Add(cur.View);
                     _pageActive = true; cur.Shown();
                     cur.View.BeginAnimation(UIElement.OpacityProperty, null); cur.View.Opacity = 1;
-                    if (anim) { Motion.RevealPage(cur, 0.10, 0.055); RevealNav(); }
+                    if (anim) { var rp = AnimProfiles.Get(S.IslandAnim); Motion.RevealPage(cur, rp.RevealBase, rp.RevealStep, rp.RevealY, rp.RevealScale); RevealNav(); }
                 }
             }
             MoveDot();
         }
         _miniEq.Running = (_live == Live.Media || _live == Live.Both) && s == St.Collapsed;
 
+        var P = AnimProfiles.Get(S.IslandAnim);
         if (anim)
         {
             if (exp)
             {
                 // Expandir: a forma "se abre" com larguras e alturas em molas diferentes (efeito de morph);
                 // o conteúdo entra um instante depois, com escala + subida, e os cartões chegam em cascata.
-                _w.To(w, 0, 320, 24); _h.To(h, 0, 250, 25); _r.To(r, 0, 260, 26);
-                _expO.To(1, 0.07, 360, 36); _expS.To(1, 0.03, 240, 17); _expY.To(0, 0.03, 240, 20);
+                // Os números de cada estilo (Fluida, Elástica, Cristal, Precisa, Bolha) ficam em AnimProfiles.
+                if (_expO.Value < 0.05) { _expS.Snap(P.SStart); _expY.Snap(P.YStart); }   // ponto de partida do estilo (conteúdo ainda invisível)
+                _w.To(w, 0, P.WK, P.WC); _h.To(h, P.HDelay, P.HK, P.HC); _r.To(r, P.RDelay, P.RK, P.RC);
+                _expO.To(1, P.ODelay, P.OK, P.OC); _expS.To(1, P.SDelay, P.SK, P.SC); _expY.To(0, P.YDelay, P.YK, P.YC);
                 _miniO.To(0, 0, 420, 38); _bannerO.To(0, 0, 420, 38);
             }
             else
             {
                 // Recolher: o conteúdo some primeiro (rápido) e só então a forma encolhe — nada fica espremido.
                 bool banner = s == St.Banner;
-                double k = banner ? 360 : fastOut ? 800 : 340, c = banner ? 24 : fastOut ? 50 : 30;
-                double shapeDelay = (s == St.Collapsed && !fastOut) ? 0.05 : 0;
+                double k = banner ? 360 : fastOut ? Math.Min(P.CK * 2.35, 1400) : P.CK, c = banner ? 24 : fastOut ? P.CC * 1.65 : P.CC;
+                double shapeDelay = (s == St.Collapsed && !fastOut) ? P.CShapeDelay : 0;
                 _w.To(w, shapeDelay, k, c); _h.To(h, shapeDelay, k, c); _r.To(r, shapeDelay, k, c);
-                _expO.To(0, 0, fastOut ? 900 : 700, fastOut ? 60 : 52);
-                _expS.To(0.96, 0, fastOut ? 600 : 420, fastOut ? 44 : 34);
-                _expY.To(8, 0, 420, 34);
-                _miniO.To(s == St.Collapsed ? 1 : 0, s == St.Collapsed ? (fastOut ? 0.02 : 0.12) : 0, 420, 38);
+                _expO.To(0, 0, fastOut ? 900 : P.COK, fastOut ? 60 : P.COC);
+                _expS.To(P.SOut, 0, fastOut ? 600 : P.CSK, fastOut ? 44 : P.CSC);
+                _expY.To(P.YOut, 0, 420, 34);
+                _miniO.To(s == St.Collapsed ? 1 : 0, s == St.Collapsed ? (fastOut ? 0.02 : P.MiniDelay) : 0, 420, 38);
                 _bannerO.To(s == St.Banner ? 1 : 0, s == St.Banner ? 0.10 : 0, 420, 38);
             }
         }
@@ -612,7 +698,7 @@ public sealed class IslandWindow : Window
         {
             _w.Snap(w); _h.Snap(h); _r.Snap(r);
             _miniO.Snap(s == St.Collapsed ? 1 : 0); _bannerO.Snap(s == St.Banner ? 1 : 0); _expO.Snap(exp ? 1 : 0);
-            _expS.Snap(exp ? 1 : 0.94); _expY.Snap(exp ? 0 : 14);
+            _expS.Snap(exp ? 1 : P.SOut); _expY.Snap(exp ? 0 : P.YStart);
         }
         _exp.IsHitTestVisible = exp;
         _mini.IsHitTestVisible = s == St.Collapsed;
@@ -674,7 +760,7 @@ public sealed class IslandWindow : Window
             if (_navBrush.TryGetValue(kv.Key, out var br)) br.Color = FK.Lerp(off, on, near);
             if (_navScale.TryGetValue(kv.Key, out var sc)) sc.ScaleX = sc.ScaleY = 1 + 0.09 * near;
         }
-        _mini.Width = Math.Max(1, Math.Min(w, CollapsedWidthNow));
+        _mini.Width = Math.Max(1, Math.Min(w, CollapsedWidthNow) - 2 * MiniEar);
 
         if (_incoming != null)
         {
@@ -749,8 +835,18 @@ public sealed class IslandWindow : Window
         if (_st == St.Expanded) ArmCollapse();
     }
 
+    bool GestureOk => S.CollapsedGestures && _st == St.Collapsed && !_noExpand;
+    static bool CtrlDown => Keyboard.IsKeyDown(Key.LeftCtrl) || Keyboard.IsKeyDown(Key.RightCtrl);
+
     void OnIslandMove(object sender, MouseEventArgs e)
     {
+        // Ilha recolhida com mídia: arrastar para os lados troca de faixa (segure Ctrl para reposicionar a ilha).
+        if (_mouseDown && e.LeftButton == MouseButtonState.Pressed && GestureOk && Svc.Media.HasSession && !CtrlDown)
+        {
+            var d = e.GetPosition(this) - _downPos;
+            if (Math.Abs(d.X) >= 34 && Math.Abs(d.X) > Math.Abs(d.Y) * 1.4) { _mouseDown = false; _swiped = true; DoSwipe(d.X < 0); return; }
+            if (d.Length >= 7) return;      // não deixa o "arrastar para mover" começar antes de o gesto poder acontecer
+        }
         if (!_mouseDown || e.LeftButton != MouseButtonState.Pressed || !S.AllowDrag) return;
         if ((e.GetPosition(this) - _downPos).Length < 7) return;
         _mouseDown = false;
@@ -761,9 +857,81 @@ public sealed class IslandWindow : Window
     void OnIslandUp(object sender, MouseButtonEventArgs e)
     {
         bool click = _mouseDown; _mouseDown = false;
-        if (!click) return;
+        if (_swiped) { _swiped = false; return; }
+        if (!click || (e.GetPosition(this) - _downPos).Length > 12) return;
         if (_st == St.Collapsed && S.ExpandOnClick) Expand();
-        else if (_st == St.Banner) { _bannerT.Stop(); ShowPage("inbox", false); Expand(); }
+        else if (_st == St.Banner)
+        {
+            _bannerT.Stop();
+            if (_bannerItem?.Action == "update") { SetState(St.Collapsed); _ = Svc.Updates.InstallAsync(); }
+            else { ShowPage("inbox", false); Expand(); }
+        }
+    }
+
+    // ---------------- Gestos na ilha recolhida ----------------
+    void OnIslandWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (!GestureOk) return;
+        e.Handled = true; _activity = DateTime.Now;
+        var a = Svc.Audio;
+        if (a.Muted && e.Delta > 0) a.Muted = false;
+        float v = Math.Clamp(a.Volume + (float)(e.Delta / 120.0 * 0.03), 0f, 1f);
+        a.Volume = v;
+        string ico = a.Muted || v <= 0.001f ? "volume-off" : v < 0.5f ? "volume-low" : "volume";
+        ShowHud(ico, v, $"{Math.Round(v * 100)}", null);
+    }
+
+    void OnIslandMiddle(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Middle || !GestureOk) return;
+        e.Handled = true; _activity = DateTime.Now;
+        if (!Svc.Media.HasSession) { ShowHud("music", null, "", "Nada tocando"); return; }
+        bool willPlay = !Svc.Media.Playing;
+        Svc.Media.PlayPause();
+        ShowHud(willPlay ? "play" : "pause", null, "", willPlay ? "Reproduzindo" : "Pausado");
+    }
+
+    void DoSwipe(bool next)
+    {
+        if (next) Svc.Media.Next(); else Svc.Media.Prev();
+        ShowHud(next ? "skip-forward" : "skip-back", null, "", next ? "Próxima faixa" : "Faixa anterior");
+        if (S.Animations)
+        {
+            var nudge = new DoubleAnimation(next ? -12 : 12, 0, TimeSpan.FromMilliseconds(520)) { EasingFunction = new ElasticEase { Oscillations = 1, Springiness = 5, EasingMode = EasingMode.EaseOut } };
+            _miniShift.BeginAnimation(TranslateTransform.XProperty, nudge);
+        }
+    }
+
+    void ShowHud(string icon, double? frac, string text, string? label)
+    {
+        _hudIcon.Child = Ico.Make(icon, 15, Brushes.White, 1.9);
+        bool bar = frac != null;
+        _hudTrack.Visibility = _hudFill.Visibility = bar ? Visibility.Visible : Visibility.Collapsed;
+        _hudLabel.Visibility = bar ? Visibility.Collapsed : Visibility.Visible;
+        _hudLabel.Text = label ?? ""; _hudText.Text = text;
+        _hudFill.Background = _accent;
+        _hudFrac = frac ?? 0; UpdateHudFill();
+        FadeHud(true);
+        _hudT.Stop(); _hudT.Start();
+    }
+
+    void UpdateHudFill() => _hudFill.Width = Math.Max(4, _hudBar.ActualWidth * Math.Clamp(_hudFrac, 0, 1));
+
+    void FadeHud(bool on)
+    {
+        _hud.IsHitTestVisible = false;
+        double ms = S.Animations ? (on ? 140 : 320) : 1;
+        _hud.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(on ? 1 : 0, TimeSpan.FromMilliseconds(ms)) { EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut } });
+    }
+
+    // ---------------- Cor dinâmica da capa ----------------
+    void ApplyAccent()
+    {
+        var c = S.DynamicCoverColor ? Svc.Media.Accent : Colors.White;
+        if (c == _accentTarget) return;
+        _accentTarget = c;
+        if (S.Animations) _accent.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(c, TimeSpan.FromMilliseconds(600)) { EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut } });
+        else { _accent.BeginAnimation(SolidColorBrush.ColorProperty, null); _accent.Color = c; }
     }
 
     void ArmCollapse()
@@ -794,8 +962,10 @@ public sealed class IslandWindow : Window
     }
 
     // ---------------- Banner alert ----------------
+    InboxItem? _bannerItem;
     void ShowBanner(InboxItem it)
     {
+        _bannerItem = it;
         _bTitle.Text = it.Title; _bText.Text = it.Text.Length > 0 ? it.Text : it.Source;
         _bIcon.Text = it.Source.Length > 0 ? it.Source[..1].ToUpperInvariant() : "!";
         var brand = Brand.Match(it.Source);
@@ -813,7 +983,7 @@ public sealed class IslandWindow : Window
     }
 
     // ---------------- Pílula recolhida: LED pulsante ----------------
-    bool IsActive()
+    new bool IsActive()
     {
         if (S.IsOn("focus") && Svc.Focus.AnyRunning) return true;
         if (S.IsOn("media") && Svc.Media.Playing && Svc.Media.Title.Length > 0) return true;
@@ -838,7 +1008,13 @@ public sealed class IslandWindow : Window
         bool media = MediaPlaying();
         var info = S.IsOn("focus") ? Svc.Focus.Primary() : null;
         bool timer = info != null;
-        var mode = media && timer ? Live.Both : media ? Live.Media : timer ? Live.Timer : Live.None;
+        var ag = AgendaNow();
+        var dm = Svc.Downloads;
+        bool dl = S.ShowDownloadProgress && S.WatchDownloads && (dm.Active || dm.JustFinished);
+        // prioridade: compromisso chegando > mídia/timer > download (que ainda aparece como linha fina embaixo quando há mídia/timer)
+        var mode = ag != null ? Live.Agenda : media && timer ? Live.Both : media ? Live.Media : timer ? Live.Timer : dl ? Live.Download : Live.None;
+        UpdateAgenda(ag);
+        UpdateDownload(dl);
 
         if (media)
         {
@@ -882,7 +1058,85 @@ public sealed class IslandWindow : Window
                 _loop.Kick();
             }
         }
-        _miniEq.Running = media && _st == St.Collapsed;
+        _miniEq.Running = (mode == Live.Media || mode == Live.Both) && _st == St.Collapsed;
+    }
+
+    // ---------------- Próximo compromisso ----------------
+    (CalEvent ev, TimeSpan left)? AgendaNow()
+    {
+        int m = S.AgendaAlertMinutes;
+        if (m <= 0) return null;
+        var now = DateTime.Now;
+        var ev = Svc.Calendar.Between(now.AddMinutes(-1), now.AddMinutes(m)).Where(e => !e.AllDay && e.Start > now.AddSeconds(-60)).OrderBy(e => e.Start).FirstOrDefault();
+        return ev == null ? null : (ev, ev.Start - now);
+    }
+
+    void UpdateAgenda((CalEvent ev, TimeSpan left)? ag)
+    {
+        if (ag == null) { _agendaKey = ""; return; }
+        var (ev, left) = ag.Value;
+        bool soon = left.TotalMinutes <= 5;
+        string key = ev.Title + "|" + ev.Start.Ticks;
+        if (key != _agendaKey || soon != _agendaSoon || _aIcon.Child == null)
+        {
+            _agendaKey = key; _agendaSoon = soon;
+            _aIcon.Child = Ico.Make("calendar", 15, soon ? K.Orange : Brushes.White, 1.8);
+            _aTitle.Text = Trim(string.IsNullOrWhiteSpace(ev.Title) ? "Compromisso" : ev.Title, 15);
+            _aTime.Foreground = soon ? K.Orange : K.Dim;
+        }
+        _aTime.Text = left.TotalSeconds <= 0 ? "agora" : left.TotalMinutes > 5 ? $"em {Math.Ceiling(left.TotalMinutes)} min" : "em " + K.Fmt(TimeSpan.FromSeconds(Math.Ceiling(left.TotalSeconds)));
+    }
+
+    // ---------------- Download ao vivo ----------------
+    void UpdateDownload(bool on)
+    {
+        var dm = Svc.Downloads;
+        if (on && dm.Active)
+        {
+            if (_dIcon.Child == null) _dIcon.Child = Ico.Make("download", 15, Brushes.White, 1.9);
+            string t = DownloadMonitor.FormatBytes(dm.TotalBytes) + (dm.TotalSpeed > 1024 ? " · " + DownloadMonitor.FormatSpeed(dm.TotalSpeed) : "");
+            if (dm.Count > 1) t += $" +{dm.Count - 1}";
+            if (_dText.Text != t) _dText.Text = t;
+            if (!_dlRunning) StartDlBar();
+        }
+        else if (on && dm.JustFinished)
+        {
+            if (_dlRunning && !_dlFinishing) FinishDlBar();
+        }
+        else if (_dlRunning || _dlFinishing) StopDlBar();
+    }
+
+    double DlWidth => Math.Max(40, _mini.Width - 48);
+
+    void StartDlBar()
+    {
+        _dlRunning = true; _dlFinishing = false;
+        double w = DlWidth, seg = Math.Max(30, w * 0.38);
+        _dlFill.BeginAnimation(WidthProperty, null);
+        _dlFill.Background = _accent;                     // acompanha a cor da capa quando há música
+        _dlFill.Width = seg;
+        var sweep = new DoubleAnimation(-seg, w, TimeSpan.FromMilliseconds(1150)) { RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut } };
+        _dlShift.BeginAnimation(TranslateTransform.XProperty, sweep);
+        _dlBar.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(S.Animations ? 260 : 1)));
+    }
+
+    /// <summary>O arquivo terminou de verdade: a barra enche até o fim (verde) e some.</summary>
+    void FinishDlBar()
+    {
+        _dlFinishing = true;
+        _dlShift.BeginAnimation(TranslateTransform.XProperty, null); _dlShift.X = 0;
+        _dlFill.Background = K.Green;
+        var fill = new DoubleAnimation(DlWidth, TimeSpan.FromMilliseconds(S.Animations ? 320 : 1)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        _dlFill.BeginAnimation(WidthProperty, fill);
+    }
+
+    void StopDlBar()
+    {
+        _dlRunning = _dlFinishing = false;
+        _dlBar.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(S.Animations ? 380 : 1)));
+        var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
+        t.Tick += (_, _) => { t.Stop(); if (!_dlRunning) { _dlShift.BeginAnimation(TranslateTransform.XProperty, null); _dlFill.BeginAnimation(WidthProperty, null); _dlFill.Width = 0; } };
+        t.Start();
     }
 
     void LayoutLive(Live m)
@@ -893,6 +1147,8 @@ public sealed class IslandWindow : Window
         _miniEq.Margin = new Thickness(both ? 8 : 0, 0, 0, 0);
         if (m == Live.Media) { _liveL.Children.Add(_mIcon); _liveR.Children.Add(_miniEq); }
         else if (m == Live.Timer) { _liveL.Children.Add(_tIcon); _liveR.Children.Add(_tText); _liveR.Children.Add(_tExtra); _tText.Margin = new Thickness(0); }
+        else if (m == Live.Agenda) { _liveL.Children.Add(_aIcon); _liveL.Children.Add(_aTitle); _liveR.Children.Add(_aTime); }
+        else if (m == Live.Download) { _liveL.Children.Add(_dIcon); _liveR.Children.Add(_dText); }
         else if (both) { _liveL.Children.Add(_tIcon); _liveL.Children.Add(_tText); _liveL.Children.Add(_tExtra); _liveR.Children.Add(_mIcon); _liveR.Children.Add(_miniEq); }
     }
 
@@ -921,10 +1177,33 @@ public sealed class IslandWindow : Window
     static string Trim(string s, int n) => s.Length > n ? s[..n] + "…" : s;
 
     // ---------------- Fullscreen monitoring ----------------
+    static readonly HashSet<string> ScreenshotApps = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ScreenClippingHost", "SnippingTool", "ScreenSketch", "ShareX", "Greenshot", "Lightshot", "flameshot",
+        "PicPick", "Snagit32", "SnagitCapture", "SnagitEditor", "Screenpresso", "Gyazo", "GyazoReplay", "Monosnap"
+    };
+
+    static bool IsScreenshotTool()
+    {
+        try
+        {
+            var h = Native.GetForegroundWindow();
+            if (h == IntPtr.Zero) return false;
+            Native.GetWindowThreadProcessId(h, out uint pid);
+            if (pid == 0) return false;
+            using var p = System.Diagnostics.Process.GetProcessById((int)pid);
+            return ScreenshotApps.Contains(p.ProcessName);
+        }
+        catch { return false; }
+    }
+
     void CheckFullscreen()
     {
         bool fs = false;
         try { if (Native.SHQueryUserNotificationState(out int st) == 0) fs = st is 2 or 3 or 4; } catch { }
+        // A camada de captura de tela (Win+Shift+S, Print Screen, ShareX...) cobre a tela inteira, mas não é um app em tela cheia:
+        // a ilha deve continuar visível para sair no print.
+        if (fs && IsScreenshotTool()) fs = false;
         switch (S.Fullscreen)
         {
             case FullscreenMode.Hide:
@@ -940,7 +1219,7 @@ public sealed class IslandWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
-        if (_hwnd != IntPtr.Zero) { Native.UnregisterHotKey(_hwnd, 1); Native.UnregisterHotKey(_hwnd, 2); }
+        if (_hwnd != IntPtr.Zero) { Native.UnregisterHotKey(_hwnd, 1); Native.UnregisterHotKey(_hwnd, 2); try { Native.RemoveClipboardFormatListener(_hwnd); } catch { } }
         base.OnClosed(e);
     }
 }

@@ -210,10 +210,10 @@ public static class Motion
         return list;
     }
 
-    public static void RevealPage(IPage page, double baseDelay = 0.08, double step = 0.055)
+    public static void RevealPage(IPage page, double baseDelay = 0.08, double step = 0.055, double fromY = 18, double fromScale = 0.94)
     {
         var targets = page is PageBase pb ? pb.RevealTargets.ToList() : Targets(page.View);
         // (sem fallback: a View da página usa um TranslateTransform próprio na troca de abas e não pode ser trocado)
-        RevealAll(targets, baseDelay, step);
+        RevealAll(targets, baseDelay, step, fromY, fromScale);
     }
 }

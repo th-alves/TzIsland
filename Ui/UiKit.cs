@@ -316,8 +316,12 @@ public sealed class PillSlider : FrameworkElement
     bool _drag;
     public bool ReadOnly { get; set; }
     public event Action<double>? Changed;
-    public Brush Fill { get; set; } = K.AccentGradient;
-    public bool ShowThumb { get; set; }
+    Brush _fill = K.AccentGradient;
+    public Brush Fill { get => _fill; set { _fill = value; InvalidateVisual(); } }
+    bool _showThumb;
+    public bool ShowThumb { get => _showThumb; set { _showThumb = value; InvalidateVisual(); } }
+    /// <summary>Cor do "bolinha" (por padrão branca); a página de Mídia usa a cor da capa.</summary>
+    public Brush ThumbBrush { get; set; } = K.White;
 
     public PillSlider() { Height = 22; Cursor = Cursors.Hand; }
 
@@ -333,7 +337,7 @@ public sealed class PillSlider : FrameworkElement
         dc.DrawRoundedRectangle(K.Track, null, new Rect(0, y, w, h), 3, 3);
         double fw = Math.Max(h, _v * w);
         dc.DrawRoundedRectangle(Fill, null, new Rect(0, y, fw, h), 3, 3);
-        if (ShowThumb) dc.DrawEllipse(K.White, null, new Point(Math.Clamp(_v * w, 4.5, w - 4.5), ActualHeight / 2), 4.5, 4.5);
+        if (_showThumb) dc.DrawEllipse(ThumbBrush, null, new Point(Math.Clamp(_v * w, 4.5, w - 4.5), ActualHeight / 2), 4.5, 4.5);
     }
 
     void Set(Point p)

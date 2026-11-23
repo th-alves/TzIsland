@@ -41,11 +41,18 @@ public sealed class FileTrayService
         try
         {
             var nw = new FileSystemWatcher(path) { NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite, EnableRaisingEvents = true };
-            nw.Created += (_, e) => Detected(e.FullPath, origin);
-            nw.Renamed += (_, e) => Detected(e.FullPath, origin);
+            nw.Created += (_, e) => OnFs(e.FullPath, origin);
+            nw.Renamed += (_, e) => OnFs(e.FullPath, origin);
+            nw.Changed += (_, e) => { if (origin == "Downloads" && Temp.Contains(System.IO.Path.GetExtension(e.FullPath).ToLowerInvariant())) Svc.Downloads.Wake(); };
             w = nw;
         }
         catch (Exception e) { Log.Write(e); }
+    }
+
+    void OnFs(string path, string origin)
+    {
+        if (Temp.Contains(System.IO.Path.GetExtension(path).ToLowerInvariant())) { if (origin == "Downloads") Svc.Downloads.Wake(); return; }
+        Detected(path, origin);
     }
 
     void Detected(string path, string origin)
@@ -64,6 +71,7 @@ public sealed class FileTrayService
             await Ui.InvokeAsync(() =>
             {
                 Add(path, true, origin);
+                if (origin == "Downloads") Svc.Downloads.Completed(path);
                 Hub.Notify(origin, origin == "Downloads" ? "Novo download" : "Nova captura", System.IO.Path.GetFileName(path));
             });
             await Task.Delay(5000);

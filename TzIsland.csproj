@@ -10,7 +10,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>TzIsland</AssemblyName>
     <RootNamespace>TzIsland</RootNamespace>
-    <Version>2.2.0</Version>
+    <Version>2.4.2</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
@@ -22,6 +22,12 @@
     <AutoreleasePoolSupport>false</AutoreleasePoolSupport>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <NoWarn>$(NoWarn);CA1416;CS8618</NoWarn>
+    <!-- Velopack (vpk): empacota publish/ como instalador + atualizações -->
+    <VpkPackId>TzIsland</VpkPackId>
+    <VpkPackTitle>TzIsland</VpkPackTitle>
+    <VpkPackAuthors>Thigas</VpkPackAuthors>
+    <VpkMainExe>TzIsland.exe</VpkMainExe>
+    <VpkChannel>win</VpkChannel>
   </PropertyGroup>
 
   <ItemGroup>
@@ -39,6 +45,9 @@
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="Velopack" Version="1.2.161" />
+    <!-- A ferramenta `vpk` (empacotador) não é referência de pacote: instale com
+         dotnet tool install vpk (tool-path tools) e use tools\vpk.exe pack; ver docs/VELOPACK.md -->
   </ItemGroup>
 
 </Project>

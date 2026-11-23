@@ -30,6 +30,7 @@ public sealed class FocusPage : PageBase
 
     // ---- Timer
     readonly TextBlock _tTime = K.Num("10:00", 42);
+    readonly TextBlock _tHint = K.T("Role o mouse nos minutos ou segundos", 9.5, K.Muted);
     readonly Waveform _wave = new() { Height = 30, Margin = new Thickness(0, 2, 0, 0) };
     readonly ChipRow _chips = new(new[] { "5m", "10m", "25m" });
     readonly Button _tStart, _tReset;
@@ -100,15 +101,43 @@ public sealed class FocusPage : PageBase
         var tGrid = K.Rows("auto", "*", "auto", "auto", "auto");
         tGrid.Children.Add(FK.Header(Ico.Make("hourglass", 12, K.Label, 1.9), "Temporizador"));
         _tTime.HorizontalAlignment = HorizontalAlignment.Center;
-        var tDigits = new Border { Background = Brushes.Transparent, Cursor = Cursors.SizeNS, ToolTip = "Role o mouse para ajustar os minutos", Child = _tTime, VerticalAlignment = VerticalAlignment.Center };
+        var tDigits = new Border { Background = Brushes.Transparent, Cursor = Cursors.SizeNS, ToolTip = "Role o mouse para ajustar (Shift = de 5 em 5)", Child = _tTime, VerticalAlignment = VerticalAlignment.Center };
         tDigits.PreviewMouseWheel += (_, e) =>
         {
             if (F.Timer.Running || F.Timer.Touched) return;
-            F.TimerSet(F.Timer.Minutes + (e.Delta > 0 ? 1 : -1));
+            int step = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 5 : 1;
+            F.TimerAdjust(e.Delta > 0 ? step : -step, 0);
             _popT!.Hit(1.06); e.Handled = true;
         };
         _popT = new Pop(_tTime);
-        tGrid.Children.Add(tDigits.At(row: 1));
+        // Segundos: um alvo invisível do mesmo tamanho do texto, por cima da parte dos segundos, com a roda do mouse
+        // (não usa o MouseWheel do ScrollViewer, que às vezes engole o evento).
+        var tSecWheel = new Border { Background = Brushes.Transparent, Cursor = Cursors.SizeNS, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, ToolTip = "Role o mouse aqui para ajustar os segundos" };
+        tSecWheel.PreviewMouseWheel += (_, e) =>
+        {
+            if (F.Timer.Running || F.Timer.Touched) return;
+            int step = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 5 : 1;
+            F.TimerAdjust(0, e.Delta > 0 ? step : -step);
+            _popT!.Hit(1.06); e.Handled = true;
+        };
+        void PlaceSecWheel()
+        {
+            double w = Math.Max(8, _tTime.ActualWidth), h = Math.Max(8, _tTime.ActualHeight);
+            tSecWheel.Width = w * 0.36; tSecWheel.Height = h;
+            tSecWheel.Margin = new Thickness(w * 0.62, 0, 0, 0);
+        }
+        _tTime.SizeChanged += (_, _) => PlaceSecWheel();
+        PlaceSecWheel();
+        var tTimeHost = new Grid { Background = Brushes.Transparent };
+        tTimeHost.Children.Add(tDigits);
+        tTimeHost.Children.Add(tSecWheel);
+        // números e dica empilhados (a dica fica abaixo dos números, nunca por trás)
+        _tHint.HorizontalAlignment = HorizontalAlignment.Center; _tHint.TextAlignment = TextAlignment.Center;
+        _tHint.TextWrapping = TextWrapping.Wrap; _tHint.Margin = new Thickness(0, 4, 0, 0);
+        var tTimeStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        tTimeStack.Children.Add(tTimeHost);
+        tTimeStack.Children.Add(_tHint);
+        tGrid.Children.Add(tTimeStack.At(row: 1));
         tGrid.Children.Add(_wave.At(row: 2));
         _chips.Margin = new Thickness(0, 12, 0, 0);
         _chips.Picked += i => F.TimerSet(i switch { 0 => 5, 1 => 10, _ => 25 });
@@ -309,7 +338,7 @@ public sealed class FocusPage : PageBase
         _wave.Activity = Math.Clamp(_waveS.Value, 0, 1.1);
         _wave.Phase = _clock;
         if (_waveS.Value > 0.002 || !_waveS.Settled || tRun) _wave.Redraw();
-        int chip = tm.Minutes == 5 ? 0 : tm.Minutes == 10 ? 1 : tm.Minutes == 25 ? 2 : -1;
+        int chip = tm.Minutes == 5 && tm.Seconds == 0 ? 0 : tm.Minutes == 10 && tm.Seconds == 0 ? 1 : tm.Minutes == 25 && tm.Seconds == 0 ? 2 : -1;
         if (chip != _lastChip) { _chips.Select(chip, _lastChip != -2); _lastChip = chip; }
         bool touched = tm.Touched;
         if (tRun != _lastT || touched != _lastTTouched)

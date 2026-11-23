@@ -22,6 +22,10 @@ public static class Svc
     public static readonly SpectrumService Spectrum = new();
     public static readonly NetworkService Network = new();
     public static readonly AmbienceService Ambience = new();
+    public static readonly DownloadMonitor Downloads = new();
+    public static readonly UpdateService Updates = new();
+    public static readonly LyricsService Lyrics = new();
+    public static readonly ClipboardService Clipboard = new();
 
     public static void Start()
     {
@@ -32,6 +36,8 @@ public static class Svc
         Weather.Start();
         Calendar.Start();
         Water.Start();
+        Clipboard.Start();
+        Updates.Start();
         if (s.IsOn("media")) _ = Media.StartAsync();
         if (s.IsOn("inbox")) _ = WinNotifs.StartAsync();
         if (s.IsOn("ai")) Agents.Start();

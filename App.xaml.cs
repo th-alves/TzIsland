@@ -4,9 +4,12 @@ public partial class App : Application
 {
     Mutex? _mutex;
     System.Windows.Forms.NotifyIcon? _tray;
+    internal bool RestartForUpdate;   // o app está saindo para o Velopack aplicar a atualização
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        // Velopack: precisa ser a primeira coisa do app (trata --velopack-* de instalação/atualização e hooks)
+        Velopack.VelopackApp.Build().SetAutoApplyOnStartup(true).Run();
         base.OnStartup(e);
         var cli = Cli.Parse(e.Args);
 
@@ -70,6 +73,7 @@ public partial class App : Application
     protected override async void OnExit(ExitEventArgs e)
     {
         try { _tray?.Dispose(); await Svc.StopAsync(); _mutex?.ReleaseMutex(); } catch { }
+        if (RestartForUpdate) Svc.Updates.ApplyAndRestart();   // encerrou de vez → o Velopack aplica e reabre
         base.OnExit(e);
     }
 }
