@@ -12,6 +12,7 @@
     <RootNamespace>TzIsland</RootNamespace>
     <Version>2.5.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\TzIsland.ico</ApplicationIcon>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
@@ -39,6 +40,7 @@
   <ItemGroup>
     <!-- Inter (OFL): fonte moderna embutida, não depende de nada instalado no Windows -->
     <Resource Include="Fonts\*.ttf" />
+    <Resource Include="Assets\TzIsland.ico" />
     <None Include="Fonts\LICENSE-Inter.txt" />
   </ItemGroup>
 

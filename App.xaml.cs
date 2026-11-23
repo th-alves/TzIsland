@@ -45,16 +45,6 @@ public partial class App : Application
 
     void SetupTray()
     {
-        using var bmp = new System.Drawing.Bitmap(32, 32);
-        using (var g = System.Drawing.Graphics.FromImage(bmp))
-        {
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            using var b = new System.Drawing.SolidBrush(System.Drawing.Color.White);
-            g.FillRectangle(b, 3, 3, 26, 5);
-            using var path = new System.Drawing.Drawing2D.GraphicsPath();
-            path.AddArc(3, 3, 26, 26, 0, 180);
-            g.FillPath(b, path);
-        }
         var menu = new System.Windows.Forms.ContextMenuStrip();
         menu.Items.Add("Expandir / recolher", null, (_, _) => Dispatcher.Invoke(() => IslandWindow.Instance?.OpenPage("home")));
         menu.Items.Add("Configurações…", null, (_, _) => Dispatcher.Invoke(() => SettingsWindow.ShowSingle().Activate()));
@@ -62,7 +52,7 @@ public partial class App : Application
         menu.Items.Add("Sair", null, (_, _) => Dispatcher.Invoke(Shutdown));
         _tray = new System.Windows.Forms.NotifyIcon
         {
-            Icon = System.Drawing.Icon.FromHandle(bmp.GetHicon()),
+            Icon = AppIcon.Tray(),
             Text = "TzIsland",
             ContextMenuStrip = menu,
             Visible = Settings.Current.ShowTrayIcon
