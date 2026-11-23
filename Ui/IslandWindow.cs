@@ -642,7 +642,15 @@ public sealed class IslandWindow : Window
             // Posição só de layout (sem RenderTransform): a animação de entrada desloca os ícones em Y,
             // e medir no meio dela deixava a lente fora do lugar ao abrir/fechar a ilha.
             double navY = VisualTreeHelper.GetOffset(_nav).Y;
-            double CenterOf(FrameworkElement el) => navY + VisualTreeHelper.GetOffset(el).Y + el.ActualHeight / 2;
+            // soma os deslocamentos até a barra: o botão do Inbox fica dentro de um Grid (junto com o contador),
+            // e o offset dele em relação a esse Grid é 0 — a lente ia parar no topo, em cima do Início.
+            double CenterOf(FrameworkElement el)
+            {
+                double y = 0;
+                for (DependencyObject d = el; d != null && d != _nav; d = VisualTreeHelper.GetParent(d))
+                    if (d is Visual v) y += VisualTreeHelper.GetOffset(v).Y;
+                return navY + y + el.ActualHeight / 2;
+            }
             double y = CenterOf(b) - LensH / 2;
             foreach (var kv in _navBtns) _navCenter[kv.Key] = CenterOf(kv.Value);
             // mola um pouco mais macia (menos "borracha"): chega rápido, passa de leve e assenta
