@@ -79,7 +79,7 @@ if (-not (Test-Path "releases")) { New-Item -ItemType Directory -Path "releases"
 
 & "tools\vpk.exe" pack `
     -u TzIsland -v $Version -p publish -e TzIsland.exe `
-    --packTitle TzIsland --packAuthors Thigas `
+    --packTitle TzIsland --packAuthors Thigas -i Assets\TzIsland.ico `
     -c $Channel -o releases -y
 if ($LASTEXITCODE -ne 0) { Fail "falha no vpk pack" }
 

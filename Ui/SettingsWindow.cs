@@ -26,6 +26,7 @@ public sealed class SettingsWindow : Window
     public SettingsWindow()
     {
         Title = "TzIsland — Configurações";
+        Icon = AppIcon.Window();
         Width = 900; Height = 680; MinWidth = 740; MinHeight = 480;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Background = K.Hex("#FF050505");
