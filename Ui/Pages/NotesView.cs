@@ -59,7 +59,7 @@ sealed class NotesView : PageBase
             Background = EditorBg, BorderBrush = EditorStroke, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(18),
             Padding = new Thickness(16, 12, 14, 12), Child = edGrid, Cursor = Cursors.IBeam
         };
-        _editorCard.MouseLeftButtonDown += (_, e) => { if (e.OriginalSource == _editorCard || e.OriginalSource == edGrid) { _edit.Focus(); _edit.CaretPosition = _edit.Document.ContentEnd; } };
+        _editorCard.MouseLeftButtonDown += (_, e) => { if (e.OriginalSource == _editorCard || e.OriginalSource == edGrid) { IslandWindow.Instance?.EnableKeyboard(); _edit.Focus(); _edit.CaretPosition = _edit.Document.ContentEnd; } };
 
         // ---------------- Painel de formatação
         AddFmt("bold", TextIcon("B", 15, FontWeights.Bold), "Negrito", "Negrito (Ctrl+B)", () => EditingCommands.ToggleBold.Execute(null, _edit));
@@ -86,6 +86,9 @@ sealed class NotesView : PageBase
             _debounce.Stop(); _debounce.Start(); SetSaved(false);
         };
         _edit.SelectionChanged += (_, _) => SyncFmtState();
+        // A ilha não rouba o foco do Windows; ao clicar/focar o editor ela passa a aceitar o teclado.
+        _edit.PreviewMouseLeftButtonDown += (_, _) => IslandWindow.Instance?.EnableKeyboard();
+        _edit.GotKeyboardFocus += (_, _) => IslandWindow.Instance?.EnableKeyboard();
         _edit.PreviewKeyDown += OnKeys;
         _debounce.Tick += (_, _) => { _debounce.Stop(); Persist(); };
 

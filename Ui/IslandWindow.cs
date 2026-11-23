@@ -639,10 +639,12 @@ public sealed class IslandWindow : Window
         _nav.UpdateLayout();
         try
         {
-            var p = b.TranslatePoint(new Point(0, b.ActualHeight / 2), _navTrack);
-            double y = p.Y - LensH / 2;
-            foreach (var kv in _navBtns)
-                _navCenter[kv.Key] = kv.Value.TranslatePoint(new Point(0, kv.Value.ActualHeight / 2), _navTrack).Y;
+            // Posição só de layout (sem RenderTransform): a animação de entrada desloca os ícones em Y,
+            // e medir no meio dela deixava a lente fora do lugar ao abrir/fechar a ilha.
+            double navY = VisualTreeHelper.GetOffset(_nav).Y;
+            double CenterOf(FrameworkElement el) => navY + VisualTreeHelper.GetOffset(el).Y + el.ActualHeight / 2;
+            double y = CenterOf(b) - LensH / 2;
+            foreach (var kv in _navBtns) _navCenter[kv.Key] = CenterOf(kv.Value);
             // mola um pouco mais macia (menos "borracha"): chega rápido, passa de leve e assenta
             if (S.Animations) _dotX.To(y, 0, 380, 21); else _dotX.Snap(y);
             b.BringIntoView(new Rect(0, -LensH, b.ActualWidth, b.ActualHeight + LensH * 2));   // ativo sempre visível quando a barra rola
@@ -842,7 +844,14 @@ public sealed class IslandWindow : Window
 
     static T? FindParent<T>(DependencyObject d) where T : DependencyObject
     {
-        while (d != null) { if (d is T t) return t; d = VisualTreeHelper.GetParent(d) ?? LogicalTreeHelper.GetParent(d); }
+        while (d != null)
+        {
+            if (d is T t) return t;
+            // Elementos de texto (Run, Paragraph do RichTextBox) não são Visual: sobe pela árvore lógica.
+            d = d is Visual || d is System.Windows.Media.Media3D.Visual3D
+                ? VisualTreeHelper.GetParent(d) ?? LogicalTreeHelper.GetParent(d)
+                : d is FrameworkContentElement fce ? fce.Parent ?? LogicalTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d);
+        }
         return null;
     }
 
