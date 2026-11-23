@@ -27,18 +27,21 @@ public sealed class IslandWindow : Window
     readonly Shapes.Path _outline = new() { IsHitTestVisible = false, StrokeThickness = 0.8 };
     readonly Grid _mini = new(), _banner = new(), _exp = new();
     readonly Grid _pageHost = new();
-    readonly Border _navPill = new() { Background = K.Hex("#FF0A0A0C"), BorderBrush = K.Stroke, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(17) };
-    const double LensW = 38, LensH = 30;
-    readonly Grid _navHost = new();
-    readonly StackPanel _nav = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+    // Barra de seções vertical, na lateral direita (minimalista: só ícones, uma "lente" desliza atrás do ativo).
+    const double LensW = 34, LensH = 28;
+    readonly Grid _navHost = new();                 // coluna inteira: [lista rolável] + divisor + engrenagem
+    readonly Grid _navTrack = new();                // conteúdo rolável: lente atrás dos ícones
+    ScrollViewer _navScroll = null!;
+    readonly StackPanel _nav = new() { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Center };
+    readonly StackPanel _navFoot = new() { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Center };
     readonly Border _navDot = new()
     {
         Width = LensW,
         Height = LensH,
         CornerRadius = new CornerRadius(9),
         Background = K.Hex("#FF2B2B2F"),
-        HorizontalAlignment = HorizontalAlignment.Left,
-        VerticalAlignment = VerticalAlignment.Center,
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Top,
         RenderTransform = new TranslateTransform()
     };
     readonly ScaleTransform _expScale = new(1, 1);
@@ -270,21 +273,25 @@ public sealed class IslandWindow : Window
         bs.Children.Add(_bTitle); bs.Children.Add(_bText);
         _banner.Children.Add(bs.At(col: 1));
 
-        // Expanded: [page host] + [segmented Apple pill navigation bar]
+        // Expanded: [page host] + [barra de seções vertical à direita]
         _exp.HorizontalAlignment = HorizontalAlignment.Center; _exp.VerticalAlignment = VerticalAlignment.Top; _exp.Opacity = 0;
         _exp.RenderTransformOrigin = new Point(0.5, 0);
         _exp.RenderTransform = new TransformGroup { Children = { _expScale, _expShift } };
-        _exp.RowDefinitions.Add(new RowDefinition { Height = K.GL("*") });
-        _exp.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        _pageHost.Margin = new Thickness(18, 14, 18, 2);
+        _exp.ColumnDefinitions.Add(new ColumnDefinition { Width = K.GL("*") });
+        _exp.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _exp.Children.Add(_pageHost);
 
-        _navHost.Margin = new Thickness(18, 2, 18, 10); _navHost.Height = 46;
-        _navHost.Children.Add(_navPill);
-        _navHost.Children.Add(_navDot);      // a "lente" fica atrás dos ícones
-        _nav.VerticalAlignment = VerticalAlignment.Center;
-        _navHost.Children.Add(_nav);
-        _exp.Children.Add(_navHost.At(row: 1));
+        _navTrack.Children.Add(_navDot);     // a "lente" fica atrás dos ícones
+        _navTrack.Children.Add(_nav);
+        _navScroll = K.Scroll(_navTrack);
+        _navScroll.SizeChanged += (_, _) => UpdateNavFade();
+        _navScroll.ScrollChanged += (_, _) => UpdateNavFade();
+        _navHost.RowDefinitions.Add(new RowDefinition { Height = K.GL("*") });
+        _navHost.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _navHost.Width = LensW + 4;
+        _navHost.Children.Add(_navScroll);
+        _navHost.Children.Add(_navFoot.At(row: 1));
+        _exp.Children.Add(_navHost.At(col: 1));
 
         // Interaction events
         _island.MouseEnter += (_, _) => { _collapseT.Stop(); if (_st == St.Collapsed && S.ExpandOnHover && !_noExpand) { _hoverT.Interval = TimeSpan.FromMilliseconds(S.HoverDelayMs); _hoverT.Start(); } };
@@ -445,8 +452,8 @@ public sealed class IslandWindow : Window
         _exp.Width = S.ExpandedWidth - 2 * Ear; _exp.Height = S.ExpandedHeight;
         _mini.Width = S.CollapsedWidth - 2 * MiniEar; _mini.Height = S.CollapsedHeight;
         _banner.Width = bannerW - 2 * Ear; _banner.Height = bannerH;
-        _navHost.Margin = new Thickness(18, 2, 18, Floating ? 10 : 15);
-        _pageHost.Margin = new Thickness(18, 14, 18, 2);
+        _pageHost.Margin = new Thickness(18, 14, 8, Floating ? 14 : 16);
+        _navHost.Margin = new Thickness(0, Floating ? 14 : 12, Floating ? 12 : 10, Floating ? 14 : 16);
         _backdrop.Width = S.ExpandedWidth + S.BlurAmount * 2; _backdrop.Height = S.ExpandedHeight + S.BlurAmount; _backdrop.Margin = new Thickness(0, 0, 0, 0);
         ((BlurEffect)_backdrop.Effect).Radius = Math.Max(0.1, S.BlurAmount);
         ApplyLook();
@@ -502,11 +509,11 @@ public sealed class IslandWindow : Window
             var id = m.Id;
             // Botão do MESMO tamanho/raio da lente: o realce de hover coincide com ela e não vaza nos cantos.
             var b = K.IconBtn(m.Glyph, m.Title, () => ShowPage(id), 15, LensW, LensH);
-            b.Tag = new CornerRadius(9); b.Margin = new Thickness(3, 0, 3, 0);
+            b.Tag = new CornerRadius(9); b.Margin = new Thickness(0, 1, 0, 1);
             var ink = new SolidColorBrush(((SolidColorBrush)K.Label).Color);
             var sc = new ScaleTransform(1, 1);
-            if (id == "ai") { var sp = Brand.Sparkle(17, ink); sp.Fill = ink; b.Content = sp; }   // faísca de IA no lugar do texto "AI"
-            else if (NavIcon.TryGetValue(id, out var ico)) b.Content = new IconHost(ico, 17, ink, 1.7);
+            if (id == "ai") { var sp = Brand.Sparkle(16, ink); sp.Fill = ink; b.Content = sp; }   // faísca de IA no lugar do texto "AI"
+            else if (NavIcon.TryGetValue(id, out var ico)) b.Content = new IconHost(ico, 16, ink, 1.7);
             else if (b.Content is TextBlock tb) tb.Foreground = ink;
             if (b.Content is FrameworkElement ce) { ce.RenderTransformOrigin = new Point(0.5, 0.5); ce.RenderTransform = sc; }
             _navBrush[id] = ink; _navScale[id] = sc;
@@ -519,14 +526,32 @@ public sealed class IslandWindow : Window
             }
             else _nav.Children.Add(b);
         }
-        _nav.Children.Add(new Border { Width = 1, Height = 16, Background = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)), Margin = new Thickness(6, 0, 6, 0) });
+        _navFoot.Children.Clear();
+        _navFoot.Children.Add(new Border { Width = 16, Height = 1, Background = new SolidColorBrush(Color.FromArgb(34, 255, 255, 255)), Margin = new Thickness(0, 5, 0, 5) });
         var gear = K.IconBtn("\uE713", "Configurações", OpenSettings, 14, LensW, LensH, K.Label);
-        gear.Tag = new CornerRadius(9); gear.Margin = new Thickness(3, 0, 3, 0);
-        gear.Content = Ico.Make("settings", 17, K.Label, 1.7);
-        _nav.Children.Add(gear);
+        gear.Tag = new CornerRadius(9);
+        gear.Content = Ico.Make("settings", 16, K.Label, 1.7);
+        _navFoot.Children.Add(gear);
         if (_pageId == null || !_navBtns.ContainsKey(_pageId)) _pageId = _navBtns.Keys.FirstOrDefault();
         UpdateBadge();
         Dispatcher.InvokeAsync(MoveDot, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>Quando há mais seções do que cabem na altura, as bordas da barra esmaecem (indicando que dá para rolar).</summary>
+    void UpdateNavFade()
+    {
+        if (_navScroll == null) return;
+        double h = _navScroll.ActualHeight, off = _navScroll.VerticalOffset, max = _navScroll.ScrollableHeight;
+        if (h <= 0 || max <= 0.5) { _navScroll.OpacityMask = null; return; }
+        double f = Math.Min(0.14, 22 / h);
+        var top = off > 0.5 ? 0.0 : 1.0; var bot = off < max - 0.5 ? 0.0 : 1.0;
+        _navScroll.OpacityMask = new LinearGradientBrush(new GradientStopCollection
+        {
+            new GradientStop(Color.FromArgb((byte)(255 * top), 0, 0, 0), 0),
+            new GradientStop(Colors.Black, f),
+            new GradientStop(Colors.Black, 1 - f),
+            new GradientStop(Color.FromArgb((byte)(255 * bot), 0, 0, 0), 1)
+        }, 90);
     }
 
     void UpdateBadge()
@@ -568,7 +593,7 @@ public sealed class IslandWindow : Window
     void RevealNav()
     {
         int i = 0;
-        foreach (var el in _nav.Children.OfType<FrameworkElement>()) Motion.Reveal(el, 0.12 + (i++) * 0.03, 14, 0.55);
+        foreach (var el in _nav.Children.OfType<FrameworkElement>().Concat(_navFoot.Children.OfType<FrameworkElement>())) Motion.Reveal(el, 0.12 + (i++) * 0.025, 10, 0.55);
     }
 
     public void ShowPage(string id, bool animate = true)
@@ -601,8 +626,8 @@ public sealed class IslandWindow : Window
 
     void FinishTransition()
     {
-        if (_incoming != null) { _incoming.Opacity = 1; ((TranslateTransform)_incoming.RenderTransform).X = 0; }
-        if (_outgoing != null) { _pageHost.Children.Remove(_outgoing); _outgoing.Visibility = Visibility.Visible; _outgoing.Opacity = 1; ((TranslateTransform)_outgoing.RenderTransform).X = 0; }
+        if (_incoming != null) { _incoming.Opacity = 1; ((TranslateTransform)_incoming.RenderTransform).Y = 0; }
+        if (_outgoing != null) { _pageHost.Children.Remove(_outgoing); _outgoing.Visibility = Visibility.Visible; _outgoing.Opacity = 1; ((TranslateTransform)_outgoing.RenderTransform).Y = 0; }
         _incoming = _outgoing = null;
     }
 
@@ -614,12 +639,13 @@ public sealed class IslandWindow : Window
         _nav.UpdateLayout();
         try
         {
-            var p = b.TranslatePoint(new Point(b.ActualWidth / 2, 0), _navHost);
-            double x = p.X - LensW / 2;
+            var p = b.TranslatePoint(new Point(0, b.ActualHeight / 2), _navTrack);
+            double y = p.Y - LensH / 2;
             foreach (var kv in _navBtns)
-                _navCenter[kv.Key] = kv.Value.TranslatePoint(new Point(kv.Value.ActualWidth / 2, 0), _navHost).X;
+                _navCenter[kv.Key] = kv.Value.TranslatePoint(new Point(0, kv.Value.ActualHeight / 2), _navTrack).Y;
             // mola um pouco mais macia (menos "borracha"): chega rápido, passa de leve e assenta
-            if (S.Animations) _dotX.To(x, 0, 380, 21); else _dotX.Snap(x);
+            if (S.Animations) _dotX.To(y, 0, 380, 21); else _dotX.Snap(y);
+            b.BringIntoView(new Rect(0, -LensH, b.ActualWidth, b.ActualHeight + LensH * 2));   // ativo sempre visível quando a barra rola
             _loop.Kick();
         }
         catch { }
@@ -747,16 +773,16 @@ public sealed class IslandWindow : Window
         if (_exp.Effect != null) _exp.Effect = null;
         _expScale.ScaleX = _expScale.ScaleY = _expS.Value;
         _expShift.Y = _expY.Value;
-        double stretch = Math.Min(Math.Abs(_dotX.Velocity) * 0.016, 18);   // squash & stretch da lente
-        _navDot.Width = LensW + stretch;
-        _navDot.Height = LensH - Math.Min(stretch * 0.2, 4);
-        ((TranslateTransform)_navDot.RenderTransform).X = _dotX.Value - stretch / 2;
+        double stretch = Math.Min(Math.Abs(_dotX.Velocity) * 0.014, 14);   // squash & stretch da lente (vertical)
+        _navDot.Height = LensH + stretch;
+        _navDot.Width = LensW - Math.Min(stretch * 0.2, 4);
+        ((TranslateTransform)_navDot.RenderTransform).Y = _dotX.Value - stretch / 2;
         // Cada ícone acende e cresce conforme a lente passa por ele (tudo sincronizado com o movimento da lente).
-        double lensC = _dotX.Value + LensW / 2;
+        double lensC = _dotX.Value + LensH / 2;
         var off = ((SolidColorBrush)K.Label).Color; var on = ((SolidColorBrush)K.White).Color;
         foreach (var kv in _navCenter)
         {
-            double near = Math.Clamp(1 - Math.Abs(lensC - kv.Value) / (LensW * 0.85), 0, 1);
+            double near = Math.Clamp(1 - Math.Abs(lensC - kv.Value) / (LensH * 0.85), 0, 1);
             if (_navBrush.TryGetValue(kv.Key, out var br)) br.Color = FK.Lerp(off, on, near);
             if (_navScale.TryGetValue(kv.Key, out var sc)) sc.ScaleX = sc.ScaleY = 1 + 0.09 * near;
         }
@@ -769,12 +795,12 @@ public sealed class IslandWindow : Window
             double t = _pg.Value;
             double tin = Math.Clamp((t - 0.3) / 0.7, 0, 1), tout = Math.Clamp(t / 0.3, 0, 1);
             _incoming.Opacity = tin;
-            ((TranslateTransform)_incoming.RenderTransform).X = (1 - t) * 44 * _dir;
+            ((TranslateTransform)_incoming.RenderTransform).Y = (1 - t) * 26 * _dir;
             if (_outgoing != null)
             {
                 _outgoing.Opacity = 1 - tout;
                 if (tout >= 1) _outgoing.Visibility = Visibility.Hidden;
-                ((TranslateTransform)_outgoing.RenderTransform).X = -tout * 32 * _dir;
+                ((TranslateTransform)_outgoing.RenderTransform).Y = -tout * 18 * _dir;
             }
             if (_pg.Settled) FinishTransition();
         }
@@ -811,7 +837,7 @@ public sealed class IslandWindow : Window
     void OnPreviewDown(object sender, MouseButtonEventArgs e)
     {
         _activity = DateTime.Now;
-        if (e.OriginalSource is DependencyObject d && FindParent<TextBox>(d) != null) EnableKeyboard();
+        if (e.OriginalSource is DependencyObject d && FindParent<System.Windows.Controls.Primitives.TextBoxBase>(d) != null) EnableKeyboard();
     }
 
     static T? FindParent<T>(DependencyObject d) where T : DependencyObject
@@ -942,7 +968,7 @@ public sealed class IslandWindow : Window
         _collapseT.Start();
     }
 
-    bool KeepOpen => CurrentPage()?.KeepOpen == true || IsKeyboardFocusWithin && Keyboard.FocusedElement is TextBox
+    bool KeepOpen => CurrentPage()?.KeepOpen == true || IsKeyboardFocusWithin && Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase
                      || _island.ContextMenu?.IsOpen == true || Mouse.Captured != null;
 
     void OnCollapseTick(object? s, EventArgs e)

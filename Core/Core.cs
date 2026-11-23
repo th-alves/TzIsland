@@ -82,7 +82,7 @@ public class AppSettings
     public bool StartWithWindows { get; set; }
     public bool ShowTrayIcon { get; set; } = true;
     public Dictionary<string, bool> Modules { get; set; } = new();
-    /// <summary>Ordem dos itens na barra inferior da ilha (ids de Modules). Vazio = ordem padrão.</summary>
+    /// <summary>Ordem dos itens na barra lateral da ilha (ids de Modules). Vazio = ordem padrão.</summary>
     public List<string> NavOrder { get; set; } = new();
     /// <summary>Ordem dos cartões da página Início (ids de HomeWidgets). Vazio = ordem padrão.</summary>
     public List<string> HomeOrder { get; set; } = new();

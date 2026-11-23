@@ -347,7 +347,7 @@ public sealed class SettingsWindow : Window
         var p = Panel();
         Section(p, "Módulos Corporativos");
         Note(p, "Módulos inativos não consomem recursos de CPU ou memória em segundo plano.");
-        var orderNote = Note(p, "A ordem abaixo é a mesma da barra inferior da ilha. Use as setas para mudar um item de lugar: a mudança aparece na hora.");
+        var orderNote = Note(p, "A ordem abaixo é a mesma da barra lateral da ilha (de cima para baixo). Use as setas para mudar um item de lugar: a mudança aparece na hora.");
         foreach (var id in Modules.Order())
         {
             var mid = id;
@@ -386,15 +386,15 @@ public sealed class SettingsWindow : Window
         return wrap;
     }
 
-    /// <summary>Linha de um módulo na aba Módulos: liga/desliga + ordem na barra inferior (setas para cima/baixo).</summary>
+    /// <summary>Linha de um módulo na aba Módulos: liga/desliga + ordem na barra lateral.</summary>
     static Grid ModuleRow(string id, TextBlock orderNote)
     {
         var wrap = K.Cols("*", "auto", "auto", "auto");
         wrap.Margin = new Thickness(0, 10, 0, 10);
         var l = K.T(Modules.Title(id), 13, K.Fg); l.TextWrapping = TextWrapping.Wrap; l.TextTrimming = TextTrimming.None; l.Margin = new Thickness(0, 0, 14, 0);
         void Moved(int d) { Modules.Move(id, d); orderNote.Text = "Ordem atual: " + string.Join(" · ", Modules.Order().Where(Settings.Current.IsOn).Select(Modules.Title)); }
-        var left = ArrowBtn("chevron-left", "Mover para a esquerda na barra", () => Moved(-1));
-        var right = ArrowBtn("chevron-right", "Mover para a direita na barra", () => Moved(+1));
+        var left = ArrowBtn("chevron-left", "Mover para cima na barra", () => Moved(-1));
+        var right = ArrowBtn("chevron-right", "Mover para baixo na barra", () => Moved(+1));
         left.Margin = new Thickness(0, 0, 4, 0);
         var sw = new SwitchToggle(); sw.SnapTo(Settings.Current.IsOn(id));
         sw.Toggled += on => { Settings.Current.Modules[id] = on; Settings.Apply(); };

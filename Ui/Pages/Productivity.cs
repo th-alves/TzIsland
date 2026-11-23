@@ -7,6 +7,7 @@ namespace TzIsland;
 public sealed class ProductivityPage : PageBase
 {
     readonly Grid _body = new();
+    readonly ContentControl _toolbar = new() { Focusable = false, VerticalAlignment = VerticalAlignment.Center };
     readonly ChipRow _chipRow;
     IPage? _sub;
     bool _shown;
@@ -25,9 +26,13 @@ public sealed class ProductivityPage : PageBase
         Root.RowDefinitions.Add(new RowDefinition { Height = K.GL("*") });
 
         // Abas como "chips" com destaque branco que desliza (mesmo componente do Timer)
-        _chipRow = new ChipRow(Tabs.Select(t => t.label), 86, 6) { HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 10) };
+        _chipRow = new ChipRow(Tabs.Select(t => t.label), 74, 6) { HorizontalAlignment = HorizontalAlignment.Left };
         _chipRow.Picked += i => Select(Tabs[i].id);
-        Root.Children.Add(_chipRow);
+        var head = K.Cols("auto", "*");
+        head.Margin = new Thickness(0, 0, 0, 10);
+        head.Children.Add(_chipRow);
+        head.Children.Add(_toolbar.At(col: 1).M(10, 0, 0, 0));
+        Root.Children.Add(head);
         Root.Children.Add(_body.At(row: 1));
         Select("notes", false);
     }
@@ -35,7 +40,7 @@ public sealed class ProductivityPage : PageBase
     public override bool KeepOpen => _sub?.KeepOpen ?? false;
 
     public override IEnumerable<FrameworkElement> RevealTargets =>
-        new FrameworkElement[] { _chipRow }.Concat(_sub is PageBase pb ? pb.RevealTargets : new[] { _body });
+        new FrameworkElement[] { _chipRow, _toolbar }.Concat(_sub is PageBase pb ? pb.RevealTargets : new[] { _body });
     public override void Shown() { _shown = true; _sub?.Shown(); }
     public override void Hidden() { _shown = false; _sub?.Hidden(); }
 
@@ -50,112 +55,11 @@ public sealed class ProductivityPage : PageBase
             _ => new ShortcutsView()
         };
         _body.Children.Add(_sub.View);
+        _toolbar.Content = (_sub as NotesView)?.Toolbar;
         _sub.View.BeginAnimation(UIElement.OpacityProperty, null); _sub.View.Opacity = 1;
         if (animate && Settings.Current.Animations && _sub is PageBase sp) Motion.RevealAll(sp.RevealTargets, 0.0, 0.05, 14, 0.96);
         if (_shown) _sub.Shown();
         _chipRow.Select(Array.FindIndex(Tabs, t => t.id == id), animate);
-    }
-}
-
-sealed class NotesView : PageBase
-{
-    static readonly CultureInfo Pt = new("pt-BR");
-    readonly StackPanel _list = new();
-    readonly TextBox _edit = K.Box("Escreva sua anotação…", true);
-    readonly TextBlock _meta = K.T("", 10.5, K.Muted);
-    readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(600) };
-    Note? _cur;
-    bool _loading;
-
-    public NotesView()
-    {
-        var g = K.Cols("232", "*");
-
-        // ---- Cartão esquerdo: lista de notas
-        var left = K.Rows("auto", "*");
-        var lh = K.Cols("*", "auto");
-        lh.Children.Add(FK.Header(Ico.Make("file-text", 12, K.Label, 1.9), "Notas"));
-        lh.Children.Add(K.IconBtn("\uE710", "Nova nota", () => { var n = Svc.Notes.Add(); Open(n); Refresh(); _edit.Focus(); }, 12, 28, 24, K.Fg).At(col: 1));
-        lh.Margin = new Thickness(4, 0, 0, 8);
-        left.Children.Add(lh);
-        left.Children.Add(K.Scroll(_list).At(row: 1));
-        var cLeft = FK.Card(left, 20); cLeft.Padding = new Thickness(10, 12, 10, 10); cLeft.Margin = new Thickness(0, 0, 5, 0);
-        g.Children.Add(cLeft);
-
-        // ---- Cartão direito: editor
-        var right = K.Rows("auto", "*");
-        var rh = K.Cols("*", "auto", "auto");
-        rh.Children.Add(FK.Header(Ico.Make("pen", 12, K.Label, 1.9), "Editor"));
-        rh.Children.Add(_meta.At(col: 1).Vc().M(0, 0, 6, 0));
-        rh.Children.Add(K.IconBtn("\uE74D", "Excluir nota", Delete, 12, 28, 24, K.Red).At(col: 2));
-        rh.Margin = new Thickness(2, 0, 0, 8);
-        right.Children.Add(rh);
-        _edit.Background = K.Bg; _edit.FontFamily = K.Mono; _edit.FontSize = 12.5;
-        _edit.Padding = new Thickness(14, 12, 14, 12);
-        right.Children.Add(_edit.At(row: 1));
-        var cRight = FK.Card(right, 20); cRight.Padding = new Thickness(12, 12, 12, 12); cRight.Margin = new Thickness(5, 0, 0, 0);
-        g.Children.Add(cRight.At(col: 1));
-        Root.Children.Add(g);
-
-        _edit.TextChanged += (_, _) => { if (_loading || _cur == null) return; _cur.Text = _edit.Text; _cur.Updated = DateTime.Now; _debounce.Stop(); _debounce.Start(); UpdateMeta(true); };
-        _debounce.Tick += (_, _) => { _debounce.Stop(); Svc.Notes.Save(); UpdateMeta(false); Refresh(); };
-        if (Svc.Notes.Items.Count > 0) Open(Svc.Notes.Items[0]);
-        Refresh();
-    }
-
-    public override bool KeepOpen => _edit.IsKeyboardFocusWithin;
-
-    public override void Hidden() { if (_debounce.IsEnabled) { _debounce.Stop(); Svc.Notes.Save(); } }
-
-    void Open(Note n)
-    {
-        _cur = n; _loading = true; _edit.Text = n.Text; _loading = false; _edit.IsEnabled = true; UpdateMeta(false);
-        Refresh();
-    }
-
-    void UpdateMeta(bool saving)
-    {
-        if (_cur == null) { _meta.Text = "Crie uma nota para começar"; return; }
-        _meta.Text = saving ? "salvando…" : "salvo " + _cur.Updated.ToString("HH:mm", Pt);
-    }
-
-    void Delete()
-    {
-        if (_cur == null) return;
-        Svc.Notes.Remove(_cur); _cur = null; _loading = true; _edit.Text = ""; _loading = false;
-        if (Svc.Notes.Items.Count > 0) Open(Svc.Notes.Items[0]); else { _edit.IsEnabled = false; UpdateMeta(false); Refresh(); }
-    }
-
-    void Refresh()
-    {
-        _list.Children.Clear();
-        if (Svc.Notes.Items.Count == 0)
-        {
-            var empty = new StackPanel { Margin = new Thickness(0, 26, 0, 0), HorizontalAlignment = HorizontalAlignment.Center };
-            empty.Children.Add(K.Glyph("\uE70F", 20, K.Muted));
-            var t = K.T("Nenhuma nota ainda", 12, K.Label, true); t.HorizontalAlignment = HorizontalAlignment.Center; t.Margin = new Thickness(0, 8, 0, 2);
-            var t2 = K.T("Toque em + para criar", 11, K.Muted); t2.HorizontalAlignment = HorizontalAlignment.Center;
-            empty.Children.Add(t); empty.Children.Add(t2);
-            _list.Children.Add(empty);
-            _edit.IsEnabled = false; UpdateMeta(false);
-            return;
-        }
-        foreach (var n in Svc.Notes.Items)
-        {
-            var note = n;
-            bool sel = note == _cur;
-            var s = new StackPanel();
-            s.Children.Add(K.T(note.Title, 12.5, K.Fg, true));
-            s.Children.Add(K.T(note.Updated.ToString("d MMM yyyy 'às' HH:mm", Pt), 10, K.Muted).M(0, 2, 0, 0));
-            var btn = new Button
-            {
-                Style = K.Ghost, Content = s, Background = sel ? K.CardStrong : K.Clear, Tag = new CornerRadius(12),
-                Padding = new Thickness(11, 9, 11, 9), Margin = new Thickness(0, 0, 0, 3), HorizontalAlignment = HorizontalAlignment.Stretch
-            };
-            s.Width = 186;
-            btn.Click += (_, _) => Open(note);
-            _list.Children.Add(btn);
-        }
     }
 }
 
