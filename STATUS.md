@@ -136,3 +136,7 @@ Todos os itens abaixo precisam ser testados por você no primeiro `dotnet run`; 
 - ✅ **Cabeçalho das notas:** contador, alternador Lista/Formatar, indicador de salvo, nova, exportar (.txt), excluir e ajuda com atalhos
 - ✅ Formatação salva junto da nota (campo `Rich`), notas antigas continuam abrindo
 - ✅ Correções: lente fora do lugar ao abrir a ilha; editor não recebia teclado
+
+## Etapa 18 — v2.7.0
+- Sistema: bateria dos dispositivos Bluetooth com anel de LEDs animado, ícone por tipo, layout compacto quando o card é baixo; clique abre o Bluetooth do Windows.
+- Correção: destaque da barra lateral ia para o Início ao abrir o Inbox.
