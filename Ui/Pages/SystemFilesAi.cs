@@ -29,6 +29,7 @@ public sealed class SystemPage : PageBase
     readonly StackPanel _bri = new();
     readonly StackPanel _devices = new() { Orientation = Orientation.Horizontal };
     readonly TextBlock _devEmpty = K.T("", 11, K.Muted);
+    ScrollViewer? _devScroll;
     bool _devFresh = true;     // próxima montagem é uma "entrada" (varredura dos LEDs desde 0)
     readonly DispatcherTimer _t = new() { Interval = TimeSpan.FromSeconds(20) };
 
@@ -110,8 +111,11 @@ public sealed class SystemPage : PageBase
             g.GradientStops.Add(new GradientStop(r ? Colors.Transparent : Colors.Black, 1));
             sc.OpacityMask = g;
         }
-        sc.ScrollChanged += (_, _) => Fade(); sc.SizeChanged += (_, _) => Fade();
+        sc.ScrollChanged += (_, _) => Fade();
+        sc.SizeChanged += (_, _) => { Fade(); FitTiles(); };
+        _devScroll = sc;
         g3.Children.Add(sc.At(row: 1));
+        g3.SizeChanged += (_, _) => FitTiles();
         var c3 = FK.Card(g3, 20); c3.Margin = new Thickness(0, 5, 0, 0);
 
         var right = K.Rows("auto", "*");
@@ -193,6 +197,15 @@ public sealed class SystemPage : PageBase
         BuildDisplays();
     }
 
+    /// <summary>Escolhe o layout dos blocos pela altura que sobra no card (nome e % embaixo só quando cabem).</summary>
+    void FitTiles()
+    {
+        // a lista é centralizada (mede só o conteúdo), então a altura livre vem da linha do card que a contém
+        if (_devScroll?.Parent is not Grid g || g.RowDefinitions.Count < 2 || g.RowDefinitions[1].ActualHeight <= 0) return;
+        bool compact = g.RowDefinitions[1].ActualHeight - 6 < 112;
+        foreach (var t in _devices.Children.OfType<DeviceTile>()) t.SetCompact(compact);
+    }
+
     void BuildDevices()
     {
         var list = Svc.Bluetooth.Devices;
@@ -227,6 +240,7 @@ public sealed class SystemPage : PageBase
             }
             i++;
         }
+        FitTiles();
         _devFresh = false;
     }
 

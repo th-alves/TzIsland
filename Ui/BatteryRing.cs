@@ -132,7 +132,10 @@ public sealed class DeviceTile : Border
     readonly TextBlock _name = K.T("", 11, K.Fg, true), _pct = K.Num("", 11, K.Label);
     readonly Spring _num = new(0);
     readonly MotionLoop _numLoop;
+    readonly Grid _grid = new();
+    readonly StackPanel _txt = new() { VerticalAlignment = VerticalAlignment.Center };
     int? _shown;
+    bool? _compact;
     BtKind _kind = (BtKind)(-1);
 
     public static string IconFor(BtKind k) => k switch
@@ -161,13 +164,21 @@ public sealed class DeviceTile : Border
     {
         Id = d.Id;
         Width = 88; Padding = new Thickness(4, 6, 4, 6); CornerRadius = new CornerRadius(14);
-        Background = Brushes.Transparent; Cursor = Cursors.Arrow;
-        _ring = new BatteryRing(_iconHost) { Width = 58, Height = 58, HorizontalAlignment = HorizontalAlignment.Center };
-        _name.HorizontalAlignment = HorizontalAlignment.Center; _name.TextTrimming = TextTrimming.CharacterEllipsis; _name.MaxWidth = 80;
-        _pct.HorizontalAlignment = HorizontalAlignment.Center;
-        var st = new StackPanel();
-        st.Children.Add(_ring); st.Children.Add(_name.M(0, 6, 0, 0)); st.Children.Add(_pct.M(0, 1, 0, 0));
-        Child = st;
+        Background = Brushes.Transparent;
+        _ring = new BatteryRing(_iconHost) { Width = 58, Height = 58 };
+        _name.TextTrimming = TextTrimming.CharacterEllipsis;
+        _txt.Children.Add(_name); _txt.Children.Add(_pct);
+        _grid.Children.Add(_ring); _grid.Children.Add(_txt);
+        Child = _grid;
+        SetCompact(false);
+
+        // clique abre a tela de Bluetooth do Windows (onde ele mostra a % de cada aparelho)
+        Cursor = Cursors.Hand;
+        MouseLeftButtonUp += (_, _) =>
+        {
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("ms-settings:bluetooth") { UseShellExecute = true }); }
+            catch (Exception e) { Log.Write(e); }
+        };
 
         _numLoop = new MotionLoop(() => { if (_shown is int) _pct.Text = $"{Math.Round(Math.Clamp(_num.Value, 0, 100))}%"; });
         _numLoop.Add(_num);
@@ -187,10 +198,45 @@ public sealed class DeviceTile : Border
         Update(d, true, 0);
     }
 
+    /// <summary>
+    /// Normal: anel 58 px com nome e % embaixo (precisa de ~108 px de altura).
+    /// Compacto: anel 46 px com nome e % ao lado, para quando o card Dispositivos fica baixo
+    /// (ex.: monitor externo com brilho e contraste deixa o card Controles mais alto).
+    /// </summary>
+    public void SetCompact(bool compact)
+    {
+        if (_compact == compact) return;
+        _compact = compact;
+        _grid.ColumnDefinitions.Clear(); _grid.RowDefinitions.Clear();
+        if (compact)
+        {
+            Width = double.NaN; Padding = new Thickness(4, 4, 10, 4);
+            _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            _ring.Width = _ring.Height = 46; _ring.Thickness = 3.2; _ring.HorizontalAlignment = HorizontalAlignment.Left;
+            Grid.SetRow(_txt, 0); Grid.SetColumn(_txt, 1);
+            _txt.Margin = new Thickness(8, 0, 0, 0); _txt.HorizontalAlignment = HorizontalAlignment.Left;
+            _name.HorizontalAlignment = _pct.HorizontalAlignment = HorizontalAlignment.Left;
+            _name.MaxWidth = 96; _pct.Margin = new Thickness(0, 1, 0, 0);
+        }
+        else
+        {
+            Width = 88; Padding = new Thickness(4, 6, 4, 6);
+            _grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _ring.Width = _ring.Height = 58; _ring.Thickness = 3.6; _ring.HorizontalAlignment = HorizontalAlignment.Center;
+            Grid.SetRow(_txt, 1); Grid.SetColumn(_txt, 0);
+            _txt.Margin = new Thickness(0, 6, 0, 0); _txt.HorizontalAlignment = HorizontalAlignment.Center;
+            _name.HorizontalAlignment = _pct.HorizontalAlignment = HorizontalAlignment.Center;
+            _name.MaxWidth = 80; _pct.Margin = new Thickness(0, 1, 0, 0);
+        }
+        _ring.InvalidateVisual();
+    }
+
     public void Update(BtDevice d, bool entering, double delay)
     {
         _name.Text = d.Name;
-        ToolTip = $"{d.Name}\n{KindName(d.Kind)}" + (d.Battery is int b ? $" · bateria {b}%" : " · bateria não informada");
+        ToolTip = $"{d.Name}\n{KindName(d.Kind)}" + (d.Battery is int b ? $" · bateria {b}%" : " · bateria não informada") + "\nClique para abrir o Bluetooth do Windows";
         if (d.Kind != _kind) { _kind = d.Kind; _iconHost.Child = Ico.Make(IconFor(d.Kind), 20, K.Fg, 1.7); }
         if (!entering && d.Battery == _shown) return;
 
