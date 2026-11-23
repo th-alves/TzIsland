@@ -26,6 +26,7 @@ public static class Svc
     public static readonly UpdateService Updates = new();
     public static readonly LyricsService Lyrics = new();
     public static readonly ClipboardService Clipboard = new();
+    public static readonly MixerService Mixer = new();
 
     public static void Start()
     {
