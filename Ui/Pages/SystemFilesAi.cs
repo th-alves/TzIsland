@@ -281,8 +281,11 @@ public sealed class SystemPage : PageBase
         g.Children.Add(Ico.Make(icon, 16, K.Label, 1.7).Vc().M(7, 0, 0, 0));
         g.Children.Add(s.At(col: 1).M(6, 0, 6, 0));
         g.Children.Add(num.At(col: 2).Vc());
-        g.Margin = new Thickness(0, top, 0, 0);
-        return g;
+        // Rótulo de texto explícito: antes só havia o ícone, e o slider de Contraste parecia um segundo Brilho.
+        var wrap = new StackPanel { Margin = new Thickness(0, top, 0, 0) };
+        wrap.Children.Add(K.T(tip, 10, K.Muted).M(7, 0, 0, 1));
+        wrap.Children.Add(g);
+        return wrap;
     }
 }
 

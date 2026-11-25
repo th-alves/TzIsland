@@ -463,7 +463,10 @@ public sealed class IslandWindow : Window
 
     void ApplyLook()
     {
-        double a = Math.Clamp(S.Opacity, 0.3, 1);
+        // 1% = vidro quase invisível, 100% = vidro sólido. O fundo desfocado (captura da tela) e o tint escalam juntos com o valor;
+        // antes a captura ficava sempre a 100% e o mínimo era 30%, então o vidro nunca parecia transparente.
+        double a = Math.Clamp(S.Opacity, 0.01, 1);
+        _backdrop.Opacity = a;
         _backdrop.Visibility = S.Look == IslandLook.SolidBlack || S.BlurAmount <= 0 ? Visibility.Collapsed : Visibility.Visible;
         switch (S.Look)
         {
@@ -472,14 +475,14 @@ public sealed class IslandWindow : Window
                 _sheen.Visibility = Visibility.Collapsed;
                 break;
             case IslandLook.DarkGlass:
-                _tint.Fill = new SolidColorBrush(Color.FromArgb((byte)(255 * (0.35 + 0.55 * a)), 8, 8, 9));
+                _tint.Fill = new SolidColorBrush(Color.FromArgb((byte)Math.Round(255 * 0.90 * a), 8, 8, 9));
                 _sheen.Fill = new LinearGradientBrush(Color.FromArgb(18, 255, 255, 255), Color.FromArgb(0, 0, 0, 0), 90);
                 _sheen.VerticalAlignment = VerticalAlignment.Top; _sheen.Height = 50; _sheen.Visibility = Visibility.Visible;
                 break;
             default:
                 _tint.Fill = new LinearGradientBrush(
-                    Color.FromArgb((byte)(255 * (0.18 + 0.30 * a)), 22, 22, 24),
-                    Color.FromArgb((byte)(255 * (0.32 + 0.50 * a)), 6, 6, 7), 90);
+                    Color.FromArgb((byte)Math.Round(255 * 0.48 * a), 22, 22, 24),
+                    Color.FromArgb((byte)Math.Round(255 * 0.82 * a), 6, 6, 7), 90);
                 _sheen.Fill = new LinearGradientBrush(
                     new GradientStopCollection
                     {
@@ -818,11 +821,21 @@ public sealed class IslandWindow : Window
     }
 
     // ---------------- Real backdrop blur capture ----------------
-    void CaptureBackdrop()
+    bool _capturing;
+
+    /// <summary>
+    /// Captura a tela atrás da ilha para o vidro. A própria ilha (pill, banner ou conteúdo ainda saindo) entrava na captura e
+    /// aparecia borrada ao fundo, como "ilhas duplicadas". Agora a janela fica excluída da captura só durante o instante da foto.
+    /// </summary>
+    async void CaptureBackdrop()
     {
-        if (S.Look == IslandLook.SolidBlack || S.BlurAmount <= 0 || _hwnd == IntPtr.Zero) return;
+        if (S.Look == IslandLook.SolidBlack || S.BlurAmount <= 0 || _hwnd == IntPtr.Zero || _capturing) return;
+        _capturing = true;
+        bool excluded = false;
         try
         {
+            try { excluded = Native.SetWindowDisplayAffinity(_hwnd, 0x11); } catch { }
+            if (excluded) await Task.Delay(60);      // dá tempo ao DWM de aplicar a exclusão antes da cópia
             double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
             if (!Native.GetWindowRect(_hwnd, out var rc)) return;
             double padX = S.BlurAmount, padY = S.BlurAmount;
@@ -841,6 +854,11 @@ public sealed class IslandWindow : Window
             finally { Native.DeleteObject(hb); }
         }
         catch (Exception e) { Log.Write(e); }
+        finally
+        {
+            if (excluded) { try { Native.SetWindowDisplayAffinity(_hwnd, 0); } catch { } }   // volta a aparecer em prints e gravações
+            _capturing = false;
+        }
     }
 
     // ---------------- Interaction ----------------
@@ -1240,10 +1258,36 @@ public sealed class IslandWindow : Window
         catch { return false; }
     }
 
+    static readonly HashSet<string> ShellClasses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd"
+    };
+
+    bool IsForegroundFullscreen()
+    {
+        try
+        {
+            var h = Native.GetForegroundWindow();
+            if (h == IntPtr.Zero || h == _hwnd) return false;
+            var sb = new System.Text.StringBuilder(64);
+            Native.GetClassName(h, sb, 64);
+            if (ShellClasses.Contains(sb.ToString())) return false;      // área de trabalho e barra de tarefas não contam
+            if (!Native.GetWindowRect(h, out var r)) return false;
+            var scr = System.Windows.Forms.Screen.FromHandle(h).Bounds;
+            var mine = System.Windows.Forms.Screen.FromHandle(_hwnd).Bounds;
+            if (scr != mine) return false;                                // tela cheia em outro monitor não esconde a ilha
+            return r.Left <= scr.Left && r.Top <= scr.Top && r.Right >= scr.Right && r.Bottom >= scr.Bottom;
+        }
+        catch { return false; }
+    }
+
     void CheckFullscreen()
     {
-        bool fs = false;
-        try { if (Native.SHQueryUserNotificationState(out int st) == 0) fs = st is 2 or 3 or 4; } catch { }
+        // Antes: SHQueryUserNotificationState com o estado 2 (BUSY), que dispara com o foco na área de trabalho e em outras janelas
+        // grandes, fazendo a ilha sumir. Agora só conta tela cheia de verdade: janela em primeiro plano cobrindo o monitor da ilha
+        // (ignorando desktop e barra de tarefas) ou os estados D3D/apresentação do Windows.
+        bool fs = IsForegroundFullscreen();
+        try { if (!fs && Native.SHQueryUserNotificationState(out int st) == 0) fs = st is 3 or 4; } catch { }
         // A camada de captura de tela (Win+Shift+S, Print Screen, ShareX...) cobre a tela inteira, mas não é um app em tela cheia:
         // a ilha deve continuar visível para sair no print.
         if (fs && IsScreenshotTool()) fs = false;

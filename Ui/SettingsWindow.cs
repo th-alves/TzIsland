@@ -146,9 +146,11 @@ public sealed class SettingsWindow : Window
     {
         var box = new StackPanel { Margin = new Thickness(0, 12, 0, 12) };
         var top = K.Cols("*", "auto");
-        var l = K.T(label, 13, K.Fg); l.TextTrimming = TextTrimming.None;
-        var v = FK.Mono(get().ToString(fmt, CultureInfo.InvariantCulture), 12, K.Accent, true);
-        top.Children.Add(l); top.Children.Add(v.At(col: 1));
+        var l = K.T(label, 13, K.Fg); l.TextTrimming = TextTrimming.None; l.TextWrapping = TextWrapping.Wrap; l.Margin = new Thickness(0, 0, 12, 0);
+        // Campo numérico: permite digitar o valor exato em vez de arrastar a barra milimetricamente.
+        var v = K.NumBox(get().ToString(fmt, CultureInfo.InvariantCulture));
+        v.Foreground = K.Accent; v.MaxLength = 8;
+        top.Children.Add(l.Vc()); top.Children.Add(v.At(col: 1).Vc());
         box.Children.Add(top);
         var s = new PillSlider { Value = max > min ? (get() - min) / (max - min) : 0, Margin = new Thickness(0, 6, 0, 0) };
         var apply = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(70) };
@@ -161,6 +163,21 @@ public sealed class SettingsWindow : Window
             v.Text = val.ToString(fmt, CultureInfo.InvariantCulture);
             apply.Stop(); apply.Start();
         };
+        void Commit()
+        {
+            var txt = v.Text.Replace(',', '.').Replace("%", "").Trim();
+            if (!double.TryParse(txt, NumberStyles.Float, CultureInfo.InvariantCulture, out var val))
+            { v.Text = get().ToString(fmt, CultureInfo.InvariantCulture); return; }
+            val = Math.Clamp(val, min, max);
+            if (fmt == "0") val = Math.Round(val);
+            set(val);
+            s.Value = max > min ? (val - min) / (max - min) : 0;
+            v.Text = val.ToString(fmt, CultureInfo.InvariantCulture);
+            apply.Stop(); apply.Start();
+        }
+        v.LostFocus += (_, _) => Commit();
+        v.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Commit(); e.Handled = true; } };
+        v.GotKeyboardFocus += (_, _) => v.SelectAll();
         box.Children.Add(s);
         AddRow(p, box);
     }
@@ -227,7 +244,7 @@ public sealed class SettingsWindow : Window
         Section(p, "Estilo da Ilha");
         Combo(p, "Formato da ilha", new[] { ("Clássico", IslandStyle.Classic), ("Flutuante", IslandStyle.Floating) }, () => S.Style, v => S.Style = v);
         Combo(p, "Aparência visual", new[] { ("Liquid Glass", IslandLook.LiquidGlass), ("Dark Glass", IslandLook.DarkGlass), ("Solid Black", IslandLook.SolidBlack) }, () => S.Look, v => S.Look = v);
-        Slide(p, "Opacidade do vidro", 0.3, 1, () => S.Opacity, v => S.Opacity = v, "0.00");
+        Slide(p, "Opacidade do vidro (%)", 1, 100, () => Math.Round(S.Opacity * 100), v => S.Opacity = v / 100);
         Slide(p, "Intensidade do desfoque", 0, 60, () => S.BlurAmount, v => S.BlurAmount = v);
         Note(p, "O desfoque captura realisticamente a área atrás da ilha no momento da expansão.");
 
@@ -240,7 +257,8 @@ public sealed class SettingsWindow : Window
         Section(p, "Posicionamento");
         Combo(p, "Alinhamento na tela", new[] { ("Centro", IslandAnchor.TopCenter), ("Esquerda", IslandAnchor.TopLeft), ("Direita", IslandAnchor.TopRight), ("Livre (arrastar)", IslandAnchor.Custom) }, () => S.Anchor, v => S.Anchor = v);
         var screens = System.Windows.Forms.Screen.AllScreens.Select((s, i) => ($"Monitor {i + 1}{(s.Primary ? " (principal)" : "")}", i)).ToArray();
-        Combo(p, "Monitor ativo", screens, () => Math.Min(S.Monitor, screens.Length - 1), v => S.Monitor = v);
+        int primaryIdx = Math.Max(0, Array.FindIndex(System.Windows.Forms.Screen.AllScreens, s => s.Primary));
+        Combo(p, "Monitor ativo", screens, () => S.Monitor < 0 ? primaryIdx : Math.Min(S.Monitor, screens.Length - 1), v => S.Monitor = v);
         Check(p, "Permitir arrastar para reposicionar", () => S.AllowDrag, v => S.AllowDrag = v);
 
         Section(p, "Efeitos e Fluidez");

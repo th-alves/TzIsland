@@ -112,6 +112,32 @@ public static class K
 </Style>
 """);
 
+    // Campo numérico compacto (usado ao lado dos sliders das Configurações): o texto fica centralizado na vertical,
+    // sem depender de padding, para nunca ser cortado nem desalinhado.
+    static readonly Style NumBoxStyle = (Style)XamlReader.Parse($$"""
+<Style {{Ns}} TargetType="TextBox">
+  <Setter Property="Foreground" Value="White"/>
+  <Setter Property="CaretBrush" Value="White"/>
+  <Setter Property="SelectionBrush" Value="#55FFFFFF"/>
+  <Setter Property="Background" Value="#FF0E0E10"/>
+  <Setter Property="Template">
+    <Setter.Value>
+      <ControlTemplate TargetType="TextBox">
+        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="10" BorderBrush="#FF1D1D20" BorderThickness="1" Padding="8,0">
+          <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center" Focusable="False" VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Hidden"/>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="bd" Property="BorderBrush" Value="#FF4A4A50"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate>
+    </Setter.Value>
+  </Setter>
+</Style>
+""");
+
+    public static TextBox NumBox(string text = "")
+        => new() { Style = NumBoxStyle, Text = text, Width = 72, Height = 30, FontFamily = Mono, FontSize = 12, TextAlignment = TextAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center };
+
     // ---------- constructors ----------
     public static TextBlock T(string text, double size = 12, Brush? fg = null, bool bold = false) => new()
     {

@@ -41,7 +41,12 @@ public class AppSettings
     public IslandAnchor Anchor { get; set; } = IslandAnchor.TopCenter;
     public double CustomX { get; set; }             // centro X absoluto, em pixels
     public double CustomY { get; set; }             // topo, em pixels
-    public int Monitor { get; set; }
+    public int Monitor { get; set; } = PrimaryScreenIndex();   // padrão: monitor principal (só vale para quem ainda não tem settings.json)
+    static int PrimaryScreenIndex()
+    {
+        try { return Math.Max(0, Array.FindIndex(System.Windows.Forms.Screen.AllScreens, s => s.Primary)); }
+        catch { return 0; }
+    }
 
     // Comportamento
     // Padrão novo: só clique. O hover estava abrindo a ilha mesmo com "clicar" ligado e atrapalhava os gestos da ilha recolhida.
@@ -73,7 +78,7 @@ public class AppSettings
     // Sons
     public bool SoundsEnabled { get; set; }
     public double SoundVolume { get; set; } = 0.35;
-    public bool AllowDrag { get; set; } = true;
+    public bool AllowDrag { get; set; }   // padrão: ilha travada; o usuário libera em Configurações > Posicionamento
     public int HoverDelayMs { get; set; } = 140;
     public int CollapseDelayMs { get; set; } = 250;          // espera depois que o mouse sai da ilha
     public double IdleCollapseSeconds { get; set; } = 8;     // recolhe se o mouse ficar parado em cima (0 = nunca)
@@ -210,6 +215,8 @@ public static class Settings
 
     public static void Reset()
     {
+        // Antes: Current = new(); Load(); — o Load() relia o settings.json do disco e desfazia o reset.
+        try { if (File.Exists(FilePath)) File.Delete(FilePath); } catch (Exception e) { Log.Write(e); }
         Current = new();
         Load();
         Apply();
