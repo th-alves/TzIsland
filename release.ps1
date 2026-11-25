@@ -5,11 +5,11 @@
       powershell -NoProfile -ExecutionPolicy Bypass -File release.ps1 2.4.1
       powershell -NoProfile -ExecutionPolicy Bypass -File release.ps1 2.4.1 -Notes "corrige o áudio"
 
-  O que faz:
+    O que faz:
     1. confere a versão e atualiza <Version> no TzIsland.csproj
-    2. dotnet publish -c Release -o publish
-    3. tools\vpk.exe pack -> releases\  (instalador, pacote, feed)
-    4. cria (ou reaproveita) o Release vX.Y.Z no GitHub e anexa todos os arquivos de releases\
+    2. dotnet publish -c Release -r win-x64 -o publish
+    3. tools\vpk.exe pack -> releases\ (instalador, pacotes e feed)
+    4. vpk upload github -> publica os arquivos do último empacotamento
 
   Requisitos: .NET SDK, tools\vpk.exe (dotnet tool install vpk --tool-path tools)
   e autenticação no GitHub: variável de ambiente GH_TOKEN ou GITHUB_TOKEN
@@ -44,34 +44,57 @@ function Step($msg) { Write-Host "`n== $msg" -ForegroundColor Cyan }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { Fail "versão inválida '$Version' (use algo como 2.4.1)" }
 $tag = "v$Version"
 
-if (-not (Test-Path "TzIsland.csproj")) { Fail "TzIsland.csproj não encontrado — rode o script na pasta do projeto." }
-if (-not (Test-Path "tools\vpk.exe")) { Fail "tools\vpk.exe não encontrado. Instale com: dotnet tool install vpk --tool-path tools" }
+
+if (-not (Test-Path "TzIsland.csproj")) {
+    Fail "TzIsland.csproj nao encontrado - rode o script na pasta do projeto."
+}
+
+if (-not (Test-Path "tools\vpk.exe")) {
+    Fail "tools\vpk.exe não encontrado. Instale com: dotnet tool install vpk --tool-path tools"
+}
 
 # ---------------------------------------------------------------- 1. versão no csproj
 Step "Atualizando a versão para $Version em TzIsland.csproj"
-$csproj = Get-Content -LiteralPath "TzIsland.csproj" -Raw
+
+$csprojPath = Join-Path $PSScriptRoot "TzIsland.csproj"
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+$csproj = [System.IO.File]::ReadAllText($csprojPath, [System.Text.Encoding]::UTF8)
+
 if ($csproj -match '<Version>([^<]+)</Version>') {
     $atual = $Matches[1]
-    if ($atual -eq $Version) { Write-Host "já estava em $Version" }
+
+    if ($atual -eq $Version) {
+        Write-Host "já estava em $Version"
+    }
     else {
         $csproj = $csproj -replace '<Version>[^<]+</Version>', "<Version>$Version</Version>"
-        Set-Content -LiteralPath "TzIsland.csproj" -Value $csproj -NoNewline -Encoding UTF8
+        [System.IO.File]::WriteAllText($csprojPath, $csproj, $utf8NoBom)
         Write-Host "versão anterior: $atual -> $Version"
     }
-} else {
+}
+else {
     $csproj = $csproj -replace ('(<TargetFramework>[^<]*</TargetFramework>)'), ('$1' + "`n    " + '<Version>' + $Version + '</Version>')
-    Set-Content -LiteralPath "TzIsland.csproj" -Value $csproj -NoNewline -Encoding UTF8
+    [System.IO.File]::WriteAllText($csprojPath, $csproj, $utf8NoBom)
     Write-Host 'tag Version criada'
 }
 
 # ---------------------------------------------------------------- 2. publish
 if (-not $NoPublish) {
-    Step "dotnet publish -c Release -o publish"
-    & dotnet publish -c Release -o publish
-    if ($LASTEXITCODE -ne 0) { Fail "falha no dotnet publish" }
-} else { Write-Host "publish pulado (-NoPublish)" -ForegroundColor Yellow }
+    Step "dotnet publish -c Release -r win-x64 -o publish"
+    & dotnet publish -c Release -r win-x64 -o publish
 
-if (-not (Test-Path "publish\TzIsland.exe")) { Fail "publish/TzIsland.exe não existe — rode sem -NoPublish." }
+    if ($LASTEXITCODE -ne 0) {
+        Fail "falha no dotnet publish"
+    }
+}
+else {
+    Write-Host "publish pulado (-NoPublish)" -ForegroundColor Yellow
+}
+
+if (-not (Test-Path "publish\TzIsland.exe")) {
+    Fail "publish/TzIsland.exe nao existe - rode sem -NoPublish."
+}
+
 
 # ---------------------------------------------------------------- 3. vpk pack
 Step "Empacotando com Velopack ($Version, canal $Channel)"
@@ -79,76 +102,59 @@ if (-not (Test-Path "releases")) { New-Item -ItemType Directory -Path "releases"
 
 & "tools\vpk.exe" pack `
     -u TzIsland -v $Version -p publish -e TzIsland.exe `
+    --runtime win-x64 `
     --packTitle TzIsland --packAuthors Thigas -i Assets\TzIsland.ico `
     -c $Channel -o releases -y
 if ($LASTEXITCODE -ne 0) { Fail "falha no vpk pack" }
 
-$arquivos = Get-ChildItem -LiteralPath "releases" -File |
-    Where-Object { $_.Name -match '\.(nupkg|exe|zip|json)$' -or $_.Name -eq 'RELEASES' }
-if ($arquivos.Count -eq 0) { Fail "nenhum arquivo gerado em releases" }
-Write-Host ("gerados: " + ($arquivos.Name -join ", "))
+$manifest = "releases\assets.$Channel.json"
+
+if (-not (Test-Path $manifest)) {
+    Fail "manifesto $manifest não encontrado"
+}
+
+$assetsPack = @(Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json)
+
+if ($assetsPack.Count -eq 0) {
+    Fail "nenhum arquivo encontrado no manifesto"
+}
+
+$arquivos = @($assetsPack | ForEach-Object { $_.RelativeFileName })
+
+Write-Host ("gerados neste pack: " + ($arquivos -join ", "))
 
 if ($NoUpload) { Write-Host "`nEmpacotado. Upload pulado (-NoUpload)." -ForegroundColor Yellow; exit 0 }
 
 # ---------------------------------------------------------------- 4. GitHub Release
+# ---------------------------------------------------------------- 4. GitHub Release
 Step "Publicando o Release $tag em $Repo"
-$token = if ($env:GH_TOKEN) { $env:GH_TOKEN } elseif ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } else { "" }
-if (-not $token) { Fail "defina GH_TOKEN (ou GITHUB_TOKEN) com permissão de escrita em Contents." }
 
-$headers = @{
-    Authorization          = "Bearer $token"
-    Accept                 = "application/vnd.github+json"
-    "X-GitHub-Api-Version" = "2022-11-28"
-    "User-Agent"           = "TzIsland-release"
-}
-$api = "https://api.github.com/repos/$Repo"
-
-# Release já existe?
-$releaseId = $null
-try {
-    $r = Invoke-RestMethod -Uri "$api/releases/tags/$tag" -Headers $headers -Method Get
-    $releaseId = $r.id
-    Write-Host ("Release " + $tag + " ja existe (id " + $releaseId + ") - os arquivos serao atualizados")
-} catch {
-    if ($_.Exception.Response.StatusCode.value__ -ne 404) { Fail "falha ao consultar o Release: $($_.Exception.Message)" }
+$token = if ($env:GH_TOKEN) {
+    $env:GH_TOKEN
+} elseif ($env:GITHUB_TOKEN) {
+    $env:GITHUB_TOKEN
+} else {
+    ""
 }
 
-if (-not $releaseId) {
-    $body = @{
-        tag_name         = $tag
-        target_commitish = "main"
-        name             = "TzIsland $Version"
-        body             = if ($Notes) { $Notes } else { "TzIsland $Version" }
-        draft            = $false
-        prerelease       = $false
-    } | ConvertTo-Json
-    try {
-        $r = Invoke-RestMethod -Uri "$api/releases" -Headers $headers -Method Post -Body $body -ContentType "application/json"
-        $releaseId = $r.id
-        Write-Host "Release $tag criado (id $releaseId)"
-    } catch { Fail "não foi possível criar o Release: $($_.Exception.Message)" }
+if (-not $token) {
+    Fail "defina GH_TOKEN (ou GITHUB_TOKEN) com permissão de escrita em Contents."
 }
 
-# Envia/atualiza cada arquivo
-foreach ($f in $arquivos) {
-    $mb = [string][math]::Round($f.Length / 1MB, 1)
-    Write-Host ("  enviando " + $f.Name + " - " + $mb + " MB")
-    $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
-    try {
-        Invoke-RestMethod -Uri ("https://uploads.github.com/repos/" + $Repo + "/releases/" + $releaseId + "/assets?name=" + $f.Name) -Headers $headers -Method Post -Body $bytes -ContentType "application/octet-stream" | Out-Null
-    } catch {
-        # 422 = já existe um asset com esse nome: remove e reenvia
-        if ($_.Exception.Response.StatusCode.value__ -eq 422) {
-            $existentes = Invoke-RestMethod -Uri "$api/releases/$releaseId/assets" -Headers $headers -Method Get
-            $velho = $existentes | Where-Object { $_.name -eq $f.Name }
-            if ($velho) {
-                Invoke-RestMethod -Uri "$api/releases/assets/$($velho.id)" -Headers $headers -Method Delete | Out-Null
-                Invoke-RestMethod -Uri ("https://uploads.github.com/repos/" + $Repo + "/releases/" + $releaseId + "/assets?name=" + $f.Name) -Headers $headers -Method Post -Body $bytes -ContentType "application/octet-stream" | Out-Null
-            } else { Fail "falha ao enviar $($f.Name): $($_.Exception.Message)" }
-        } else { Fail "falha ao enviar $($f.Name): $($_.Exception.Message)" }
-    }
-}
+& "tools\vpk.exe" upload github `
+    --outputDir "releases" `
+    --channel $Channel `
+    --repoUrl "https://github.com/$Repo" `
+    --token $token `
+    --publish `
+    --merge `
+    --releaseName "TzIsland $Version" `
+    --tag $tag `
+    --targetCommitish "main"
 
+if ($LASTEXITCODE -ne 0) {
+    Fail "falha ao publicar o Release pelo Velopack"
+}
 # ---------------------------------------------------------------- 5. conferência
 Step "Conferindo o feed publico"
 $feed = "https://github.com/$Repo/releases/latest/download/releases.$Channel.json"
