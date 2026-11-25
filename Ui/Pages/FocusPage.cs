@@ -4,7 +4,7 @@ namespace TzIsland;
 /// Foco: Pomodoro, Timer, Cronômetro e Água num painel só. Os três relógios são independentes e continuam
 /// rodando com a ilha recolhida — a pílula mostra o que foi iniciado por último.
 /// </summary>
-public sealed class FocusPage : PageBase
+public sealed class FocusPage : PageBase, IFrameSink
 {
     static FocusService F => Svc.Focus;
     static WaterTracker W => Svc.Water;
@@ -25,6 +25,7 @@ public sealed class FocusPage : PageBase
 
     // ---- Pomodoro
     readonly RingProgress _ring = new() { Width = 124, Height = 124, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+    public override FrameworkElement? Hero => _ring;   // recebe o portador que vem do tempo recolhido
     readonly TextBlock _pTime = K.Num("25:00", 24), _pPhase = K.T("Foco", 11.5, K.Label), _pDone = K.T("0 concluídos", 10.5, K.Muted), _pFoot = K.T("", 10.5, K.Muted);
     readonly Button _pPlay;
 
@@ -52,8 +53,7 @@ public sealed class FocusPage : PageBase
     readonly Pop _popP, _popT, _popS, _popW;
     readonly Border[] _cards;
     bool _shown, _hooked, _waterDirty;
-    long _last;
-    double _clock;
+    double _clock, _textAcc;
     bool? _lastP, _lastT, _lastS;
     bool _lastTTouched;
     int _lastChip = -2, _lastGlasses, _lastLaps = -1;
@@ -215,30 +215,48 @@ public sealed class FocusPage : PageBase
         _resetS.Snap(F.Timer.Touched ? 1 : 0);
         _lastP = _lastT = _lastS = null; _lastChip = -2; _lastLaps = -1; _lastPhase = "";
         SyncWater(true);
-        Hook();
+        F.Tick += OnTick;
         Frame(0);
+        Hook();
     }
 
     public override void Hidden()
     {
         _shown = false;
         W.Changed -= OnWater;
-        if (_hooked) { CompositionTarget.Rendering -= OnRender; _hooked = false; }
+        F.Tick -= OnTick;
+        if (_hooked) { MotionHost.Detach(this); _hooked = false; }
     }
 
     void Hook()
     {
         if (_hooked) return;
-        _hooked = true; _last = Stopwatch.GetTimestamp();
-        CompositionTarget.Rendering += OnRender;
+        _hooked = true;
+        MotionHost.Attach(this);
     }
 
-    void OnRender(object? sender, EventArgs e)
+    /// <summary>
+    /// Passo por quadro. Só continua registrado enquanto algo se move ou um relógio está correndo:
+    /// com a página parada o laço se desliga e a CPU volta a zero (antes eram 60 quadros por segundo sempre).
+    /// </summary>
+    public bool Step(double dt)
     {
-        long now = Stopwatch.GetTimestamp();
-        double dt = Math.Min(0.05, (now - _last) / (double)Stopwatch.Frequency);
-        _last = now;
+        if (!_shown) return false;
         Frame(dt);
+        return Busy;
+    }
+
+    bool Busy =>
+        !(_ringS.Settled && _glowS.Settled && _waveS.Settled && _resetS.Settled
+          && _popP.S.Settled && _popT.S.Settled && _popS.S.Settled && _popW.S.Settled)
+        || F.Pomo.Running || F.Timer.Running || F.Watch.Running
+        || _wave.Activity > 0.002;
+
+    void OnTick()
+    {
+        if (!_shown) return;
+        Frame(0);          // atualiza o texto uma vez; se nada se move, o laço se desliga sozinho
+        Hook();
     }
 
     void OnWater() { _waterDirty = true; }
@@ -311,17 +329,25 @@ public sealed class FocusPage : PageBase
     void Frame(double dt)
     {
         _clock += dt;
+        // Texto não precisa ser reformatado a cada quadro: 16 Hz é mais que suficiente e evita alocação.
+        _textAcc += dt;
+        bool text = dt <= 0 || _textAcc >= 0.06;
+        if (text) _textAcc = 0;
+
         var f = F;
         if (_waterDirty) SyncWater(false);
 
         // Pomodoro
         var pm = f.Pomo;
         bool pRun = pm.Running;
-        Set(_pTime, K.Fmt(Ceil(pm.Remaining)));
-        Set(_pPhase, pm.PhaseLabel);
-        Set(_pDone, pm.Completed == 1 ? "1 concluído" : $"{pm.Completed} concluídos");
-        var S = Settings.Current;
-        Set(_pFoot, pm.Phase == FocusPhase.Focus ? $"{S.FocusMinutes}m foco / {S.ShortBreakMinutes}m pausa" : pm.Phase == FocusPhase.ShortBreak ? "Respire fundo" : "Pausa longa merecida");
+        if (text)
+        {
+            Set(_pTime, K.Fmt(Ceil(pm.Remaining)));
+            Set(_pPhase, pm.PhaseLabel);
+            Set(_pDone, pm.Completed == 1 ? "1 concluído" : $"{pm.Completed} concluídos");
+            var cfg = Settings.Current;
+            Set(_pFoot, pm.Phase == FocusPhase.Focus ? $"{cfg.FocusMinutes}m foco / {cfg.ShortBreakMinutes}m pausa" : pm.Phase == FocusPhase.ShortBreak ? "Respire fundo" : "Pausa longa merecida");
+        }
         if (pRun != _lastP) { SetPlay(_pPlay, pRun, K.Fg, 12); if (_lastP != null) _popP.Hit(); _lastP = pRun; }
         if (pm.Phase.ToString() != _lastPhase) { if (_lastPhase != "") _popP.Hit(1.2); _lastPhase = pm.Phase.ToString(); }
         _ringS.To(pm.Progress, 0, 90, 17);
@@ -333,7 +359,7 @@ public sealed class FocusPage : PageBase
         // Timer
         var tm = f.Timer;
         bool tRun = tm.Running;
-        Set(_tTime, K.Fmt(Ceil(tm.Remaining)));
+        if (text) Set(_tTime, K.Fmt(Ceil(tm.Remaining)));
         _waveS.To(tRun ? 1 : 0, 0, 70, 12); _waveS.Step(dt);
         _wave.Activity = Math.Clamp(_waveS.Value, 0, 1.1);
         _wave.Phase = _clock;
@@ -358,8 +384,11 @@ public sealed class FocusPage : PageBase
         // Cronômetro
         var sw = f.Watch;
         bool sRun = sw.Running;
-        if (sRun || sw.Touched || _lastS == null) Set(_sTime, Fmt2(sw.Elapsed));
-        else Set(_sTime, "0:00.00");
+        if (text)
+        {
+            if (sRun || sw.Touched || _lastS == null) Set(_sTime, Fmt2(sw.Elapsed));
+            else Set(_sTime, "0:00.00");
+        }
         if (sRun != _lastS) { SetPlay(_sPlay, sRun, K.Ink, 13); if (_lastS != null) _popS.Hit(1.1); _lastS = sRun; }
         _sFlag.Opacity = sRun ? 1 : 0.35;
         int laps = sw.Laps.Count;

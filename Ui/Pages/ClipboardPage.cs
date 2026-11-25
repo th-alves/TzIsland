@@ -140,11 +140,9 @@ public sealed class ClipboardPage : PageBase
             e.Handled = true;
             if (e.ClickCount >= 2) { PasteSoon(); return; }
             if (!Svc.Clipboard.Copy(it)) return;
-            var anim = new System.Windows.Media.Animation.DoubleAnimationUsingKeyFrames();
-            anim.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(1, TimeSpan.FromMilliseconds(120)));
-            anim.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(1, TimeSpan.FromMilliseconds(760)));
-            anim.KeyFrames.Add(new System.Windows.Media.Animation.LinearDoubleKeyFrame(0, TimeSpan.FromMilliseconds(1000)));
-            done.BeginAnimation(UIElement.OpacityProperty, anim);
+            // Sequência de tracks: aparece, espera e some — interrompível e sem keyframes presos.
+            MotionEngine.To(done, UIElement.OpacityProperty, 1, Tz.Springs.Fade, 0,
+                () => MotionEngine.To(done, UIElement.OpacityProperty, 0, Tz.Springs.Fade, 0.55));
         };
         return card;
     }

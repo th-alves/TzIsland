@@ -34,6 +34,9 @@ public sealed class IslandWindow : Window
     ScrollViewer _navScroll = null!;
     readonly StackPanel _nav = new() { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Center };
     readonly StackPanel _navFoot = new() { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Center };
+    // A "lente" anda por deslocamento e estica por ESCALA: nada de Width/Height por quadro (sem passo de layout).
+    readonly ScaleTransform _dotScale = new(1, 1);
+    readonly TranslateTransform _dotShift = new();
     readonly Border _navDot = new()
     {
         Width = LensW,
@@ -42,10 +45,28 @@ public sealed class IslandWindow : Window
         Background = K.Hex("#FF2B2B2F"),
         HorizontalAlignment = HorizontalAlignment.Center,
         VerticalAlignment = VerticalAlignment.Top,
-        RenderTransform = new TranslateTransform()
+        RenderTransformOrigin = new Point(0.5, 0.5),
+        RenderTransform = new TransformGroup()
     };
     readonly ScaleTransform _expScale = new(1, 1);
     readonly TranslateTransform _expShift = new();
+    // Geometria reaproveitada no modo Flutuante: sem alocar um StreamGeometry novo por quadro.
+    RectangleGeometry? _roundClip;
+    // Sombra externa: halo real desenhado FORA da silhueta. A região da janela é inflada por `ShadowPad`
+    // e o halo não rouba cliques: fora da ilha o WM_NCHITTEST devolve HTTRANSPARENT.
+    const double ShadowPad = 24, ShadowBlur = 22, ShadowDepth = 5;
+    readonly Canvas _shadowStage = new() { IsHitTestVisible = false };
+    readonly Border _shadowBox = new()
+    {
+        IsHitTestVisible = false, Background = Brushes.Black,
+        Effect = new DropShadowEffect
+        {
+            BlurRadius = ShadowBlur, ShadowDepth = ShadowDepth, Direction = 90, Opacity = 0.62, Color = Colors.Black,
+            RenderingBias = RenderingBias.Performance
+        }
+    };
+    // Palco dos portadores do matched geometry (Etapa 4).
+    readonly Canvas _carry = new() { IsHitTestVisible = false };
 
     // Mini (collapsed pill)
     // Pílula recolhida: apenas um LED à direita que pulsa (laranja = ocioso, verde = ativo).
@@ -67,12 +88,21 @@ public sealed class IslandWindow : Window
 
         public void Pulse(double halfMs)
         {
-            var sine = new SineEase { EasingMode = EasingMode.EaseInOut };
-            DoubleAnimation A(double from, double to) => new(from, to, TimeSpan.FromMilliseconds(halfMs)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = sine };
-            _sc.BeginAnimation(ScaleTransform.ScaleXProperty, A(0.78, 1.1));
-            _sc.BeginAnimation(ScaleTransform.ScaleYProperty, A(0.78, 1.1));
-            _glow.BeginAnimation(UIElement.OpacityProperty, A(0.3, 1));
-            _core.BeginAnimation(UIElement.OpacityProperty, A(0.65, 1));
+            double w = 2 * Math.PI / Math.Max(0.2, halfMs * 2 / 1000.0);
+            // Respiração no motor: um relógio só, pausável e com dono definido.
+            MotionEngine.Wave(_sc, ScaleTransform.ScaleXProperty, t => 0.94 + 0.16 * Math.Sin(w * t));
+            MotionEngine.Wave(_sc, ScaleTransform.ScaleYProperty, t => 0.94 + 0.16 * Math.Sin(w * t));
+            MotionEngine.Wave(_glow, UIElement.OpacityProperty, t => 0.65 + 0.35 * Math.Sin(w * t));
+            MotionEngine.Wave(_core, UIElement.OpacityProperty, t => 0.825 + 0.175 * Math.Sin(w * t));
+        }
+
+        /// <summary>Encerra a respiração deixando o LED sólido (sem herdar um meio-ciclo).</summary>
+        public void StopPulse()
+        {
+            MotionEngine.Jump(_sc, ScaleTransform.ScaleXProperty, 1);
+            MotionEngine.Jump(_sc, ScaleTransform.ScaleYProperty, 1);
+            MotionEngine.Jump(_glow, UIElement.OpacityProperty, 1);
+            MotionEngine.Jump(_core, UIElement.OpacityProperty, 1);
         }
     }
 
@@ -97,6 +127,7 @@ public sealed class IslandWindow : Window
     readonly Border _dlFill = new() { CornerRadius = new CornerRadius(1.5), Background = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, Width = 0 };
     readonly TranslateTransform _dlShift = new();
     bool _dlRunning, _dlFinishing;
+    MotionHandle? _dlSweep;
     readonly TextBlock _aTitle = K.T("", 12.5, Brushes.White, true), _aTime = K.Num("", 12.5, K.Orange);
     readonly Border _aIcon = new() { VerticalAlignment = VerticalAlignment.Center };
     string _agendaKey = ""; bool _agendaSoon;
@@ -124,7 +155,7 @@ public sealed class IslandWindow : Window
 
     // Motion & spring dynamics
     readonly MotionLoop _loop;
-    readonly Spring _w, _h, _r, _miniO, _bannerO, _expO, _expS, _expY, _pg, _dotX;
+    readonly Spring _w, _h, _r, _miniO, _bannerO, _expO, _expS, _expY, _dotX;
 
     readonly Dictionary<string, IPage> _pages = new();
     readonly Dictionary<string, Button> _navBtns = new();
@@ -157,7 +188,31 @@ public sealed class IslandWindow : Window
     };
     string? _pageId;
     bool _pageActive;
-    FrameworkElement? _incoming, _outgoing;
+    // Token de transição: a fase visual é independente do estado lógico (R11).
+    enum Phase { Idle, Entering, Leaving, Settled }
+    Phase _phase = Phase.Settled;
+
+    // ---- Modo de edição dos cartões: atalho com a ilha aberta. Os cartões tremem e podem ser arrastados entre as seções ----
+    bool _edit, _dragging, _dropping, _ending;
+    CardHolder? _held;
+    Point _downPt, _grab, _lastPtr;
+    DateTime _lastMove = DateTime.MinValue;
+    Dictionary<string, List<string>>? _snap;
+    Shapes.Rectangle? _ghost;
+    readonly ScaleTransform _gScale = new(1, 1);
+    readonly RotateTransform _gRot = new();
+    readonly Spring _gx = new(0), _gy = new(0), _gs = new(1), _gr = new(0);
+    MotionLoop _dragLoop = null!;
+    string? _dwellId;
+    readonly HashSet<string> _guestOn = new();   // seções mantidas "ligadas" só porque um cartão delas mora na seção aberta
+    readonly Canvas _dragLayer = new() { IsHitTestVisible = false };
+    readonly Border _editBar = new()
+    {
+        Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top,
+        Margin = new Thickness(0, 7, 0, 0), Background = K.Hex("#F2141416"), BorderBrush = K.StrokeHi, BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(17), Padding = new Thickness(16, 3, 3, 3)
+    };
+    readonly DispatcherTimer _dwellT = new() { Interval = TimeSpan.FromMilliseconds(420) }, _scrollT = new() { Interval = TimeSpan.FromMilliseconds(16) };
 
     readonly DispatcherTimer _hoverT = new(), _collapseT = new(), _bannerT = new(), _clockT = new() { Interval = TimeSpan.FromSeconds(1) }, _fsT = new() { Interval = TimeSpan.FromSeconds(2) };
     DateTime _activity = DateTime.Now;
@@ -181,14 +236,39 @@ public sealed class IslandWindow : Window
         _w = _loop.Add(new Spring(200)); _h = _loop.Add(new Spring(34)); _r = _loop.Add(new Spring(17));
         _miniO = _loop.Add(new Spring(1)); _bannerO = _loop.Add(new Spring(0)); _expO = _loop.Add(new Spring(0));
         _expS = _loop.Add(new Spring(0.94)); _expY = _loop.Add(new Spring(14));
-        _pg = _loop.Add(new Spring(1)); _dotX = _loop.Add(new Spring(0));
+        _dotX = _loop.Add(new Spring(0));
+        // A lente usa escala + deslocamento (o grupo é montado aqui: inicializador de campo não pode referenciar campos).
+        ((TransformGroup)_navDot.RenderTransform).Children.Add(_dotScale);
+        ((TransformGroup)_navDot.RenderTransform).Children.Add(_dotShift);
+
+        // Arrastar cartões: o cartão fantasma segue o ponteiro numa mola rápida (com leve atraso) e se inclina com a velocidade.
+        _dragLoop = new MotionLoop(DragFrame);
+        _dragLoop.Add(_gx); _dragLoop.Add(_gy); _dragLoop.Add(_gs); _dragLoop.Add(_gr);
+        _gr.Stiffness = 240; _gr.Damping = 17;
 
         BuildTree();
         ApplySettings();
-
+        BuildNav();
+        CardCatalog.EnsurePage = id => GetPage(id);
+        CardCatalog.PickUp += OnCardPick;
+        _dwellT.Tick += (_, _) => OnDwell();
+        _scrollT.Tick += (_, _) => OnAutoScroll();
         SourceInitialized += OnSourceInit;
         Loaded += (_, _) => { Place(); SetState(St.Collapsed, true); RefreshMini(); };
-        Settings.Changed += OnSettingsChanged;
+        // Energia: janela oculta, máquina dormindo ou sessão bloqueada = nenhum quadro de animação.
+        IsVisibleChanged += (_, _) => { SyncMotionPause(); if (IsVisible) RefreshMini(); };
+        Microsoft.Win32.SystemEvents.PowerModeChanged += (_, e) =>
+            Dispatcher.InvokeAsync(() => SetAsleep(e.Mode == Microsoft.Win32.PowerModes.Suspend));
+        Microsoft.Win32.SystemEvents.SessionSwitch += (_, e) => Dispatcher.InvokeAsync(() => SetAsleep(
+            e.Reason is Microsoft.Win32.SessionSwitchReason.SessionLock
+                or Microsoft.Win32.SessionSwitchReason.ConsoleDisconnect
+                or Microsoft.Win32.SessionSwitchReason.RemoteDisconnect));
+        // Esc fecha a ilha (antes só o mouse; quem usa teclado ficava preso no painel).
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape && _st == St.Expanded) { Collapse(); e.Handled = true; }
+        };
+        Settings.ChangedKind += OnSettingsChanged;
         Settings.PreviewAnimation += () => Dispatcher.InvokeAsync(PreviewAnim, DispatcherPriority.Background);
         Hub.Banner += ShowBanner;
         Hub.Inbox.CollectionChanged += (_, _) => UpdateBadge();
@@ -199,13 +279,14 @@ public sealed class IslandWindow : Window
         _hoverT.Tick += (_, _) => { _hoverT.Stop(); if (S.ExpandOnHover && _island.IsMouseOver) Expand(); };
         _collapseT.Tick += OnCollapseTick;
         _bannerT.Tick += (_, _) => { _bannerT.Stop(); if (_st == St.Banner && !_island.IsMouseOver) SetState(St.Collapsed); };
+        _previewT.Tick += (_, _) => { _previewT.Stop(); if (!_island.IsMouseOver && _st == St.Expanded) Collapse(); };
+        _statsT.Tick += (_, _) => UpdateStats();
         _hudT.Tick += (_, _) => { _hudT.Stop(); FadeHud(false); };
         Svc.Downloads.Changed += () => Dispatcher.InvokeAsync(RefreshMini);
         Svc.Calendar.Changed += () => Dispatcher.InvokeAsync(RefreshMini);
         Hub.HeldChanged += () => Dispatcher.InvokeAsync(RefreshMini);
         Svc.Media.Changed += ApplyAccent;
         _clockT.Tick += (_, _) => { if (_st == St.Collapsed) RefreshMini(); };
-        _clockT.Start();
         _fsT.Tick += (_, _) => CheckFullscreen();
         _fsT.Start();
     }
@@ -214,6 +295,9 @@ public sealed class IslandWindow : Window
     void BuildTree()
     {
         Content = _root;
+        // A sombra é irmã da ilha (fora do clipe dela) e fica atrás de tudo.
+        _shadowStage.Children.Add(_shadowBox);
+        _root.Children.Add(_shadowStage);
         _root.Children.Add(_island);
         _island.HorizontalAlignment = HorizontalAlignment.Center;
         _island.VerticalAlignment = VerticalAlignment.Top;
@@ -228,7 +312,11 @@ public sealed class IslandWindow : Window
         _layers.Children.Add(_mini);
         _layers.Children.Add(_banner);
         _layers.Children.Add(_exp);
+        _layers.Children.Add(_carry);
         _layers.Children.Add(_outline);
+        // Medidor interno (Etapa 0): Ctrl+Shift+M alterna tempo de quadro / consumidores ativos.
+        _statsBox.Child = _statsText;
+        _layers.Children.Add(_statsBox);
 
         // Mini: somente o LED, centralizado
         _mini.HorizontalAlignment = HorizontalAlignment.Center; _mini.VerticalAlignment = VerticalAlignment.Top;
@@ -293,6 +381,19 @@ public sealed class IslandWindow : Window
         _navHost.Children.Add(_navFoot.At(row: 1));
         _exp.Children.Add(_navHost.At(col: 1));
 
+        // Barra do modo de edição (aparece no topo, com mola) e camada transparente onde o cartão arrastado flutua
+        var barRow = new StackPanel { Orientation = Orientation.Horizontal };
+        barRow.Children.Add(K.T("Arraste os cartões para reorganizar", 11, K.Dim).Vc());
+        var done = K.TextBtn("Concluído", () => ExitEdit(), true, 11.5);
+        done.Padding = new Thickness(13, 5, 13, 5); done.Margin = new Thickness(14, 0, 0, 0);
+        barRow.Children.Add(done);
+        _editBar.Child = barRow;
+        _exp.Children.Add(_editBar.At(colSpan: 2));
+
+        _dragLayer.MouseMove += OnDragMove;
+        _dragLayer.MouseLeftButtonUp += (_, e) => { e.Handled = true; EndDrag(false); };
+        _dragLayer.LostMouseCapture += (_, _) => { if (_held != null && !_ending) EndDrag(true); };
+        _exp.Children.Add(_dragLayer.At(colSpan: 2));
         // Interaction events
         _island.MouseEnter += (_, _) => { _collapseT.Stop(); if (_st == St.Collapsed && S.ExpandOnHover && !_noExpand) { _hoverT.Interval = TimeSpan.FromMilliseconds(S.HoverDelayMs); _hoverT.Start(); } };
         _island.MouseWheel += OnIslandWheel;
@@ -314,9 +415,10 @@ public sealed class IslandWindow : Window
 
         var menu = new ContextMenu();
         var mCfg = new MenuItem { Header = "Configurações…" }; mCfg.Click += (_, _) => OpenSettings();
-        var mTog = new MenuItem { Header = "Expandir / recolher" }; mTog.Click += (_, _) => Toggle();
+        var mTog = new MenuItem { Header = "Expandir / recolher" }; mTog.Click += (_, _) => { if (_st == St.Expanded) Collapse(); else Expand(); };
+        var mEdit = new MenuItem { Header = "Editar cartões" }; mEdit.Click += (_, _) => { Expand(); EnterEdit(); };
         var mExit = new MenuItem { Header = "Sair do TzIsland" }; mExit.Click += (_, _) => Application.Current.Shutdown();
-        menu.Items.Add(mTog); menu.Items.Add(mCfg); menu.Items.Add(new Separator()); menu.Items.Add(mExit);
+        menu.Items.Add(mTog); menu.Items.Add(mEdit); menu.Items.Add(mCfg); menu.Items.Add(new Separator()); menu.Items.Add(mExit);
         _island.ContextMenu = menu;
 
         // Futuristic Apple gradient border glow
@@ -357,15 +459,34 @@ public sealed class IslandWindow : Window
             handled = true;
             if (w.ToInt32() == 1) Toggle();
             else if (w.ToInt32() == 2) { OpenPage("dictation"); _ = Svc.Dictation.ToggleAsync(); }
+            else if (w.ToInt32() == 3) ToggleStats();
         }
         else if (msg == Native.WM_CLIPBOARDUPDATE) Svc.Clipboard.OnSystemUpdate();
+        else if (msg == Native.WM_NCHITTEST)
+        {
+            // O halo (e o espaço morto da janela) não é área da ilha: o clique precisa atravessar.
+            try
+            {
+                long lp = l.ToInt64();
+                int sx = (short)(lp & 0xFFFF), sy = (short)((lp >> 16) & 0xFFFF);
+                var p = PointFromScreen(new Point(sx, sy));
+                double iw = Math.Max(1, _w.Value), ih = Math.Max(1, _h.Value), il = (Width - iw) / 2, it = _island.Margin.Top;
+                if (p.X < il - 1 || p.X > il + iw + 1 || p.Y < it - 1 || p.Y > it + ih + 1)
+                {
+                    handled = true;
+                    return new IntPtr(Native.HTTRANSPARENT);
+                }
+            }
+            catch { }
+        }
         return IntPtr.Zero;
     }
 
     void RegisterHotkeys()
     {
         if (_hwnd == IntPtr.Zero) return;
-        Native.UnregisterHotKey(_hwnd, 1); Native.UnregisterHotKey(_hwnd, 2);
+        Native.UnregisterHotKey(_hwnd, 1); Native.UnregisterHotKey(_hwnd, 2); Native.UnregisterHotKey(_hwnd, 3);
+        Native.RegisterHotKey(_hwnd, 3, 0x0002 | 0x0004 | 0x4000, 0x4D);   // Ctrl+Shift+M: medidor de quadro
         if (Native.TryParseHotkey(S.ToggleHotkey, out var m1, out var k1)) Native.RegisterHotKey(_hwnd, 1, m1 | 0x4000, k1);
         if (S.IsOn("dictation") && Native.TryParseHotkey(S.DictationHotkey, out var m2, out var k2)) Native.RegisterHotKey(_hwnd, 2, m2 | 0x4000, k2);
     }
@@ -409,8 +530,14 @@ public sealed class IslandWindow : Window
     {
         if (_hwnd == IntPtr.Zero) return;
         double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
-        double w = _w.Value, h = _h.Value, left = (Width - w) / 2, top = _island.Margin.Top;
-        int l = (int)Math.Floor(left * dpi), t = (int)Math.Floor(top * dpi), r = (int)Math.Ceiling((left + w) * dpi), b = (int)Math.Ceiling((top + h) * dpi);
+        double w = Math.Max(1, _w.Value), h = Math.Max(1, _h.Value), left = (Width - w) / 2, top = _island.Margin.Top;
+        // O halo da sombra vive FORA da silhueta: a região cresce junto (senão o DWM corta o degradê).
+        int pad = S.WindowShadow && Floating ? (int)Math.Ceiling(ShadowPad * dpi) : 0;
+        int l = (int)Math.Floor(left * dpi) - pad, t = (int)Math.Floor(top * dpi) - pad;
+        int r = (int)Math.Ceiling((left + w) * dpi) + pad, b = (int)Math.Ceiling((top + h) * dpi) + pad;
+        l = Math.Max(0, l); t = Math.Max(0, t);
+        r = Math.Min((int)Math.Ceiling(Width * dpi), r); b = Math.Min((int)Math.Ceiling(Height * dpi), b);
+        if (r <= l || b <= t) return;                                     // região inválida (meio do overshoot): mantém a anterior
         if (l == _rgnL && t == _rgnT && r == _rgnR && b == _rgnB) return;   // nada mudou: evita recriar a região a cada frame
         _rgnL = l; _rgnT = t; _rgnR = r; _rgnB = b;
         Native.SetWindowRgn(_hwnd, Native.CreateRectRgn(l, t, r, b), false);
@@ -418,26 +545,41 @@ public sealed class IslandWindow : Window
 
     // ---------------- Settings synchronization ----------------
     IslandAnim _lastAnim = Settings.Current.IslandAnim;
-    DispatcherTimer? _previewT;
+    MotionIntensity _lastIntensity = Settings.Current.MotionIntensity;
+    readonly DispatcherTimer _previewT = new() { Interval = TimeSpan.FromMilliseconds(2200) };
+    readonly DispatcherTimer _statsT = new() { Interval = TimeSpan.FromSeconds(1) };
+    readonly TextBlock _statsText = K.T("", 9.5, K.Muted);
+    readonly Border _statsBox = new()
+    {
+        Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom,
+        Margin = new Thickness(0, 0, 12, 8), Padding = new Thickness(6, 2, 6, 2), CornerRadius = new CornerRadius(7),
+        Background = K.Hex("#E6000000"), IsHitTestVisible = false
+    };
+    bool _statsOn;
 
     /// <summary>Abre a ilha sozinha e fecha depois de um instante, para mostrar o estilo de animação escolhido.</summary>
     void PreviewAnim()
     {
         if (_noExpand || !S.Animations) return;
-        _previewT?.Stop();
+        _previewT.Stop();
         if (_st != St.Expanded) Expand();
-        _previewT = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2200) };
-        _previewT.Tick += (_, _) => { _previewT!.Stop(); if (!_island.IsMouseOver && _st == St.Expanded) Collapse(); };
         _previewT.Start();
     }
 
-    void OnSettingsChanged()
+    void OnSettingsChanged(SettingsChange kind)
     {
-        if (S.IslandAnim != _lastAnim) { _lastAnim = S.IslandAnim; Dispatcher.InvokeAsync(PreviewAnim, DispatcherPriority.Background); }
-        ApplySettings();
-        Place();
-        RegisterHotkeys();
-        SetState(_st, true);
+        // Granular: arrastar um slider de tamanho não reconstrói a barra nem mata animações.
+        if ((kind & SettingsChange.Motion) != 0 && (S.IslandAnim != _lastAnim || S.MotionIntensity != _lastIntensity))
+        {
+            _lastAnim = S.IslandAnim;
+            _lastIntensity = S.MotionIntensity;
+            Dispatcher.InvokeAsync(PreviewAnim, DispatcherPriority.Background);
+        }
+        if ((kind & (SettingsChange.Layout | SettingsChange.Look | SettingsChange.Behavior)) != 0) ApplySettings();
+        if ((kind & (SettingsChange.Layout | SettingsChange.Behavior)) != 0) Place();
+        if ((kind & SettingsChange.Modules) != 0) BuildNav();
+        if ((kind & SettingsChange.Behavior) != 0) RegisterHotkeys();
+        SetState(_st);          // retarget, nunca snap
         RefreshMini();
     }
 
@@ -457,8 +599,9 @@ public sealed class IslandWindow : Window
         _backdrop.Width = S.ExpandedWidth + S.BlurAmount * 2; _backdrop.Height = S.ExpandedHeight + S.BlurAmount; _backdrop.Margin = new Thickness(0, 0, 0, 0);
         ((BlurEffect)_backdrop.Effect).Radius = Math.Max(0.1, S.BlurAmount);
         ApplyLook();
-        BuildNav();
         if (S.Fullscreen != FullscreenMode.Hide) Visibility = Visibility.Visible;
+        SyncMotionPause();
+        _shadowStage.Visibility = S.WindowShadow ? Visibility.Visible : Visibility.Collapsed;
     }
 
     void ApplyLook()
@@ -566,10 +709,11 @@ public sealed class IslandWindow : Window
         _badgeBox.Visibility = n > 0 ? Visibility.Visible : Visibility.Collapsed;
         if (changed && n > 0 && S.Animations)
         {
-            var pop = new DoubleAnimation(1.45, 1, TimeSpan.FromMilliseconds(420)) { EasingFunction = new BackEase { Amplitude = 0.9, EasingMode = EasingMode.EaseOut } };
             var sc = (ScaleTransform)_badgeBox.RenderTransform;
-            sc.BeginAnimation(ScaleTransform.ScaleXProperty, pop);
-            sc.BeginAnimation(ScaleTransform.ScaleYProperty, pop.Clone());
+            MotionEngine.Jump(sc, ScaleTransform.ScaleXProperty, 1.45);
+            MotionEngine.Jump(sc, ScaleTransform.ScaleYProperty, 1.45);
+            MotionEngine.To(sc, ScaleTransform.ScaleXProperty, 1, Tz.Springs.Sheet);
+            MotionEngine.To(sc, ScaleTransform.ScaleYProperty, 1, Tz.Springs.Sheet);
         }
     }
 
@@ -593,18 +737,36 @@ public sealed class IslandWindow : Window
         return np;
     }
 
+    /// <summary>
+    /// Etapa 4 — matched geometry: o ícone/LED da pílula não pisca e some; ele viaja até o herói da página
+    /// (capa da mídia, anel do Foco) e o herói aparece na chegada. A geometria vem do layout real; se algo
+    /// não puder ser medido, nada acontece e a transição segue exatamente como antes.
+    /// </summary>
+    void CarryFromMini(IPage page)
+    {
+        if (page is not PageBase pb || pb.Hero is not FrameworkElement hero) return;
+        if (_miniLive.Opacity < 0.4) return;                 // a pílula precisa estar visível: é dela que se parte
+        FrameworkElement? from = _live switch
+        {
+            Live.Media or Live.Both => _mIcon,
+            Live.Timer => _tText,
+            _ => null
+        };
+        if (from is null || from.ActualWidth < 1 || from.ActualHeight < 1) return;
+        Matched.Carry(_carry, from, hero, K.CardStrong, 15, Tz.Delays.PageIn + 0.09, round: _live != Live.Timer);
+    }
+
     void RevealNav()
     {
         int i = 0;
-        foreach (var el in _nav.Children.OfType<FrameworkElement>().Concat(_navFoot.Children.OfType<FrameworkElement>())) Motion.Reveal(el, 0.12 + (i++) * 0.025, 10, 0.55);
+        // Sem deslocamento vertical: mover os ícones em Y invalidava os centros que a lente usa (C7).
+        foreach (var el in _nav.Children.OfType<FrameworkElement>().Concat(_navFoot.Children.OfType<FrameworkElement>())) Motion.Reveal(el, 0.12 + (i++) * 0.025, 0, 0.9);
     }
 
     public void ShowPage(string id, bool animate = true)
     {
         if (!S.IsOn(id) || GetPage(id) is not IPage next) return;
         if (_pageId == id && _pageHost.Children.Contains(next.View)) { MoveDot(); return; }
-        FinishTransition();
-        next.View.BeginAnimation(UIElement.OpacityProperty, null);
         next.View.Visibility = Visibility.Visible;
         IPage? prev = _pageId != null && _pages.TryGetValue(_pageId, out var pp) && _pageHost.Children.Contains(pp.View) ? pp : null;
         if (prev != null && _pageActive) prev.Hidden();
@@ -612,26 +774,51 @@ public sealed class IslandWindow : Window
         _dir = prev != null && order.IndexOf(id) < order.IndexOf(_pageId ?? id) ? -1 : 1;
         _pageId = id;
         _pageHost.Children.Add(next.View);
-        if (_pageActive) next.Shown();
-        if (prev != null && animate && S.Animations)
+        // se esta página já estava ligada como "convidada" (um cartão dela mora na página anterior), não liga duas vezes
+        if (_pageActive && !_guestOn.Remove(id)) next.Shown();
+
+        bool anim = animate && S.Animations;
+        if (prev != null && prev.View != next.View)
         {
-            _outgoing = prev.View; _incoming = next.View;
-            prev.View.BeginAnimation(UIElement.OpacityProperty, null);   // garante que a página que sai realmente possa sumir
-            prev.View.Opacity = 1;
-            next.View.Opacity = 0;
-            _pg.Snap(0); _pg.To(1, 0, 300, 19);
-            Motion.RevealPage(next, 0.16, 0.05);
+            if (anim) SlideOut(prev.View);
+            else _pageHost.Children.Remove(prev.View);
         }
-        else if (prev != null) _pageHost.Children.Remove(prev.View);
+        if (anim)
+        {
+            // A saída e a entrada são tracks independentes: interromper no meio retargeta, sem pular opacidade.
+            MotionEngine.Jump(next.View, UIElement.OpacityProperty, 0);
+            Motion.SetSlide(next.View, Tz.Dist.EnterY * _dir);
+            MotionEngine.To(next.View, UIElement.OpacityProperty, 1, Tz.Springs.Fade, Tz.Delays.PageIn);
+            Motion.SlideTo(next.View, 0, Tz.Delays.PageIn);
+            Motion.RevealPage(next, 0.16, Tz.Delays.Stagger);
+        }
+        else Motion.Rest(next.View, 1, 0);
         MoveDot();
+        SyncGuests();
         _loop.Kick();
+    }
+
+    /// <summary>A página que sai desliza e é removida quando a track assenta (sem corte no meio do caminho).</summary>
+    void SlideOut(FrameworkElement view)
+    {
+        MotionEngine.To(view, UIElement.OpacityProperty, 0, new SpringSpec(760, 52, 0.002), 0, () =>
+        {
+            if (_pageHost.Children.Contains(view)) _pageHost.Children.Remove(view);
+            Motion.Rest(view, 1, 0);
+        });
+        Motion.SlideTo(view, -Tz.Dist.ExitY * _dir, 0);
     }
 
     void FinishTransition()
     {
-        if (_incoming != null) { _incoming.Opacity = 1; ((TranslateTransform)_incoming.RenderTransform).Y = 0; }
-        if (_outgoing != null) { _pageHost.Children.Remove(_outgoing); _outgoing.Visibility = Visibility.Visible; _outgoing.Opacity = 1; ((TranslateTransform)_outgoing.RenderTransform).Y = 0; }
-        _incoming = _outgoing = null;
+        // Não força mais o fim de uma transição em voo: cada página é encerrada no valor visual atual.
+        var cur = CurrentPage()?.View;
+        foreach (var c in _pageHost.Children.OfType<FrameworkElement>().ToList())
+            if (c != cur)
+            {
+                MotionEngine.Stop(c, UIElement.OpacityProperty);
+                _pageHost.Children.Remove(c);
+            }
     }
 
     public void OpenPage(string id) { ShowPage(id, false); Expand(); }
@@ -642,8 +829,8 @@ public sealed class IslandWindow : Window
         _nav.UpdateLayout();
         try
         {
-            // Posição só de layout (sem RenderTransform): a animação de entrada desloca os ícones em Y,
-            // e medir no meio dela deixava a lente fora do lugar ao abrir/fechar a ilha.
+            // Posição só de layout (sem RenderTransform): medir no meio de uma animação deixava a lente fora do lugar.
+            // A entrada dos ícones agora não desloca em Y (só fade + escala), então os centros continuam válidos.
             double navY = VisualTreeHelper.GetOffset(_nav).Y;
             // soma os deslocamentos até a barra: o botão do Inbox fica dentro de um Grid (junto com o contador),
             // e o offset dele em relação a esse Grid é 0 — a lente ia parar no topo, em cima do Início.
@@ -677,7 +864,10 @@ public sealed class IslandWindow : Window
     void SetState(St s, bool snap = false)
     {
         if (_st == s && !snap) return;
+        _carry.Children.Clear();          // portadores de uma transição anterior não sobrevivem a uma nova
         var prev = _st; _st = s;
+        _phase = s == St.Expanded ? Phase.Entering : Phase.Leaving;
+        SyncMotionPause();                                      // janela oculta não precisa de quadros
         if (!snap && prev != s) { if (s == St.Expanded) SoundFx.Open(); else if (prev == St.Expanded) SoundFx.Close(); }
         var (w, h, r) = Target(s);
         bool exp = s == St.Expanded;
@@ -686,6 +876,7 @@ public sealed class IslandWindow : Window
         bool anim = S.Animations && !snap && !instantOut;
 
         if (exp && prev != St.Expanded) CaptureBackdrop();
+        if (!exp && prev == St.Expanded) { if (_edit) ExitEdit(); HideGuests(); }
         if (!exp && prev == St.Expanded && _pageActive) { _pageActive = false; CurrentPage()?.Hidden(); }
         if (exp && prev != St.Expanded)
         {
@@ -698,13 +889,20 @@ public sealed class IslandWindow : Window
                     foreach (var c in _pageHost.Children.OfType<FrameworkElement>().Where(c => c != cur.View).ToList()) _pageHost.Children.Remove(c);
                     if (!_pageHost.Children.Contains(cur.View)) _pageHost.Children.Add(cur.View);
                     _pageActive = true; cur.Shown();
-                    cur.View.BeginAnimation(UIElement.OpacityProperty, null); cur.View.Opacity = 1;
-                    if (anim) { var rp = AnimProfiles.Get(S.IslandAnim); Motion.RevealPage(cur, rp.RevealBase, rp.RevealStep, rp.RevealY, rp.RevealScale); RevealNav(); }
+                    Motion.Rest(cur.View, 1, 0);
+                    if (anim)
+                    {
+                        var rp = AnimProfiles.Get(S.IslandAnim);
+                        Motion.RevealPage(cur, rp.RevealBase, rp.RevealStep, rp.RevealY, rp.RevealScale);
+                        RevealNav();
+                        CarryFromMini(cur);
+                    }
                 }
             }
             MoveDot();
+            SyncGuests();
         }
-        _miniEq.Running = (_live == Live.Media || _live == Live.Both) && s == St.Collapsed;
+        _miniEq.Running = (_live == Live.Media || _live == Live.Both) && s == St.Collapsed && IsVisible;
 
         var P = AnimProfiles.Get(S.IslandAnim);
         if (anim)
@@ -714,7 +912,8 @@ public sealed class IslandWindow : Window
                 // Expandir: a forma "se abre" com larguras e alturas em molas diferentes (efeito de morph);
                 // o conteúdo entra um instante depois, com escala + subida, e os cartões chegam em cascata.
                 // Os números de cada estilo (Fluida, Elástica, Cristal, Precisa, Bolha) ficam em AnimProfiles.
-                if (_expO.Value < 0.05) { _expS.Snap(P.SStart); _expY.Snap(P.YStart); }   // ponto de partida do estilo (conteúdo ainda invisível)
+                // Só pré-posiciona quando o conteúdo está REALMENTE invisível: reabrir no meio do fechamento não salta mais.
+                if (_expO.Value <= 0.001) { _expS.Snap(P.SStart); _expY.Snap(P.YStart); }
                 _w.To(w, 0, P.WK, P.WC); _h.To(h, P.HDelay, P.HK, P.HC); _r.To(r, P.RDelay, P.RK, P.RC);
                 _expO.To(1, P.ODelay, P.OK, P.OC); _expS.To(1, P.SDelay, P.SK, P.SC); _expY.To(0, P.YDelay, P.YK, P.YC);
                 _miniO.To(0, 0, 420, 38); _bannerO.To(0, 0, 420, 38);
@@ -741,36 +940,312 @@ public sealed class IslandWindow : Window
         }
         _exp.IsHitTestVisible = exp;
         _mini.IsHitTestVisible = s == St.Collapsed;
+        // Relógio e respiração do LED só existem enquanto a pílula está visível.
+        if (s == St.Collapsed) { if (!_clockT.IsEnabled) _clockT.Start(); }
+        else
+        {
+            _clockT.Stop();
+            _ledIdle.StopPulse(); _ledActive.StopPulse();
+            _ledPulsing = false;
+        }
         Frame();
         _loop.Kick();
-        if (exp) { _activity = DateTime.Now; }
-        else { _bannerT.Stop(); }
+        if (exp) _activity = DateTime.Now;
+        else _bannerT.Stop();
+        if (!anim) _phase = Phase.Settled;
     }
+
+    // ---------------- Energia ----------------
+    bool _asleep;
+
+    /// <summary>Um único lugar decide se o relógio de animação roda: sono/sessão bloqueada ou janela oculta.</summary>
+    void SyncMotionPause() => MotionHost.Paused = _asleep || Visibility != Visibility.Visible;
+
+    void SetAsleep(bool asleep)
+    {
+        if (_asleep == asleep) return;
+        _asleep = asleep;
+        SyncMotionPause();
+        if (asleep) { _clockT.Stop(); _fsT.Stop(); _miniEq.Running = false; }
+        else
+        {
+            _fsT.Start();
+            if (_st == St.Collapsed) { _clockT.Start(); RefreshMini(); }
+        }
+    }
+
+    // ---------------- Verificação visual (--shot) ----------------
+    /// <summary>Aplica um estado sem animar (modo --shot: o PNG precisa da geometria final).</summary>
+    public void ApplyShotState(string state)
+    {
+        if (state == "expanded") SetState(St.Expanded, true);
+        else if (state == "banner") SetState(St.Banner, true);
+        else SetState(St.Collapsed, true);
+    }
+
+    /// <summary>Abre uma página sem animar (modo --shot).</summary>
+    public void ShotPage(string id) => ShowPage(id, false);
 
     IPage? CurrentPage() => _pageId != null && _pages.TryGetValue(_pageId, out var p) ? p : null;
 
     void Expand() { if (_noExpand) return; SetState(St.Expanded); }
     void Collapse() => SetState(St.Collapsed);
-    void Toggle() { if (_st == St.Expanded) Collapse(); else Expand(); }
+    // Atalho (Ctrl+Alt+Espaço): com a ilha fechada, abre; com ela aberta, liga/desliga o modo de edição dos cartões.
+    void Toggle() { if (_st == St.Expanded) ToggleEdit(); else Expand(); }
 
-    // ---------------- Animation frame step ----------------
-    static void Soft(UIElement e)
+    // ================= Modo de edição dos cartões =================
+    void ToggleEdit() { if (_edit) ExitEdit(); else EnterEdit(); }
+
+    void EnterEdit()
     {
-        double r = (1 - e.Opacity) * 14;
-        if (e.Opacity <= 0.01 || r < 0.3) { if (e.Effect != null) e.Effect = null; return; }
-        if (e.Effect is BlurEffect b) b.Radius = r;
-        else e.Effect = new BlurEffect { Radius = r, RenderingBias = RenderingBias.Performance };
+        if (_edit || _st != St.Expanded) return;
+        _edit = true; _activity = DateTime.Now; _collapseT.Stop();
+        CardCatalog.SetEditing(true);
+        _editBar.Visibility = Visibility.Visible;
+        if (S.Animations) Motion.Reveal(_editBar, 0, -14, 0.88);
+        else MotionEngine.Jump(_editBar, UIElement.OpacityProperty, 1);
     }
 
+    void ExitEdit()
+    {
+        if (!_edit) return;
+        if (_held != null) EndDrag(true);
+        _edit = false;
+        CardCatalog.SetEditing(false);
+        Settings.Save();
+        if (S.Animations)
+            MotionEngine.To(_editBar, UIElement.OpacityProperty, 0, Tz.Springs.Exit, 0,
+                () => { if (!_edit) _editBar.Visibility = Visibility.Collapsed; });
+        else { MotionEngine.Jump(_editBar, UIElement.OpacityProperty, 0); _editBar.Visibility = Visibility.Collapsed; }
+        if (_st == St.Expanded && !_island.IsMouseOver) ArmCollapse();
+    }
+
+    /// <summary>Seções cujos cartões estão na seção aberta precisam continuar "ligadas" (volume, brilho, relógio...).</summary>
+    void SyncGuests()
+    {
+        var want = new HashSet<string>();
+        if (_st == St.Expanded && _pageActive && CurrentPage() is ICardPage cp)
+            foreach (var c in CardCatalog.For(cp.PageId))
+                if (c.Owner != cp.PageId) want.Add(c.Owner);
+
+        foreach (var id in _guestOn.ToList())
+            if (!want.Contains(id))
+            {
+                _guestOn.Remove(id);
+                if (!(id == _pageId && _pageActive) && _pages.TryGetValue(id, out var gp)) gp.Hidden();
+            }
+        foreach (var id in want)
+            if (id != _pageId && _guestOn.Add(id) && _pages.TryGetValue(id, out var gp)) gp.Shown();
+    }
+
+    void HideGuests()
+    {
+        foreach (var id in _guestOn.ToList())
+            if (_pages.TryGetValue(id, out var gp)) gp.Hidden();
+        _guestOn.Clear();
+    }
+
+    void RelayoutAllBoards()
+    {
+        foreach (var p in _pages.Values.OfType<ICardPage>())
+            p.Board.Layout(CardCatalog.For(p.PageId), true, true);
+    }
+
+    // ---- Pegar o cartão ----
+    void OnCardPick(CardHolder h, MouseButtonEventArgs e)
+    {
+        if (!_edit || _held != null || _ending) return;
+        _held = h; _dragging = false; _dropping = false;
+        _downPt = e.GetPosition(_dragLayer); _lastPtr = _downPt; _grab = e.GetPosition(h);
+        _dragLayer.Background = Brushes.Transparent;
+        _dragLayer.IsHitTestVisible = true;
+        _dragLayer.CaptureMouse();
+    }
+
+    void OnDragMove(object sender, MouseEventArgs e)
+    {
+        if (_held == null || _dropping) return;
+        var p = e.GetPosition(_dragLayer);
+        _lastPtr = p; _activity = DateTime.Now;
+        if (!_dragging)
+        {
+            if ((p - _downPt).Length < 5) return;      // pequeno tremor do mouse não conta como arrastar
+            BeginDrag();
+        }
+        _gx.To(p.X - _grab.X, 0, 820, 52); _gy.To(p.Y - _grab.Y, 0, 820, 52);
+        _dragLoop.Kick();
+        UpdateDropTarget(p);
+    }
+
+    void BeginDrag()
+    {
+        var h = _held!;
+        _dragging = true;
+        _snap = CardCatalog.Snapshot();
+        var org = h.TranslatePoint(new Point(0, 0), _dragLayer);
+        _ghost = new Shapes.Rectangle
+        {
+            Width = Math.Max(1, h.ActualWidth), Height = Math.Max(1, h.ActualHeight), RadiusX = 18, RadiusY = 18,
+            Fill = new VisualBrush(h.Card) { Stretch = Stretch.Fill },       // cópia ao vivo do cartão
+            Stroke = K.StrokeHi, StrokeThickness = 1, IsHitTestVisible = false,
+            RenderTransformOrigin = new Point(0.5, 0.5),
+            RenderTransform = new TransformGroup { Children = { _gScale, _gRot } }
+        };
+        Canvas.SetLeft(_ghost, org.X); Canvas.SetTop(_ghost, org.Y);
+        _dragLayer.Children.Add(_ghost);
+        _gx.Snap(org.X); _gy.Snap(org.Y); _gr.Snap(0); _gs.Snap(1);
+        _gs.To(1.05, 0, 320, 15);                       // "pop" elástico ao levantar
+        h.SetPlaceholder(true);
+        _scrollT.Start();
+        _dragLoop.Kick();
+    }
+
+    void DragFrame()
+    {
+        if (_ghost == null) return;
+        Canvas.SetLeft(_ghost, _gx.Value); Canvas.SetTop(_ghost, _gy.Value);
+        // inclina conforme a velocidade horizontal; ao pousar, volta a zero
+        _gr.Target = _dropping ? 0 : Math.Clamp(_gx.Velocity * 0.0055, -7, 7);
+        _gScale.ScaleX = _gScale.ScaleY = _gs.Value;
+        _gRot.Angle = _gr.Value;
+        if (_dropping && _gx.Settled && _gy.Settled && _gs.Settled && _gr.Settled) FinishDrop();
+    }
+
+    // ---- Onde soltar ----
+    void UpdateDropTarget(Point p)
+    {
+        // 1) barra lateral: parar sobre um ícone por um instante troca de seção (o cartão continua na mão)
+        var navId = NavIdAt(p);
+        if (navId != _dwellId)
+        {
+            _dwellT.Stop(); ClearNavHighlight();
+            _dwellId = navId;
+            if (navId != null && navId != _pageId) { HighlightNav(navId); _dwellT.Start(); }
+        }
+        if (navId != null) return;
+
+        // 2) área da seção aberta
+        if (CurrentPage() is not ICardPage page) return;
+        var tl = _pageHost.TranslatePoint(new Point(0, 0), _dragLayer);
+        if (!new Rect(tl, new Size(_pageHost.ActualWidth, _pageHost.ActualHeight)).Contains(p)) return;
+        var bp = _dragLayer.TranslatePoint(p, page.Board.Host);
+        int idx = page.Board.InsertIndex(bp, _held);
+        if (idx >= 0) MoveHeld(page, idx);
+    }
+
+    void MoveHeld(ICardPage page, int idx)
+    {
+        if ((DateTime.Now - _lastMove).TotalMilliseconds < 110) return;      // dá tempo para a mola anterior assentar
+        var id = _held!.Info.Id;
+        string cur = CardCatalog.HostOf(id);
+        if (cur == page.PageId && CardCatalog.For(page.PageId).FindIndex(c => c.Id == id) == idx) return;
+        _lastMove = DateTime.Now;
+        CardCatalog.Move(id, page.PageId, idx);
+        page.Board.Layout(CardCatalog.For(page.PageId), true, true);
+        if (cur != page.PageId && _pages.TryGetValue(cur, out var src) && src is ICardPage sp)
+            sp.Board.Layout(CardCatalog.For(sp.PageId), true, true);
+        SyncGuests();
+    }
+
+    string? NavIdAt(Point p)
+    {
+        foreach (var kv in _navBtns)
+        {
+            var b = kv.Value;
+            if (b.ActualWidth <= 0) continue;
+            Point tl;
+            try { tl = b.TranslatePoint(new Point(0, 0), _dragLayer); } catch { continue; }
+            if (new Rect(tl.X - 8, tl.Y - 1, b.ActualWidth + 16, b.ActualHeight + 2).Contains(p)) return kv.Key;
+        }
+        return null;
+    }
+
+    void HighlightNav(string id) { if (_navBtns.TryGetValue(id, out var b)) b.Background = K.Hex("#2AFFFFFF"); }
+    void ClearNavHighlight() { foreach (var b in _navBtns.Values) b.ClearValue(Control.BackgroundProperty); }
+
+    void OnDwell()
+    {
+        _dwellT.Stop();
+        if (_held == null || _dwellId == null) return;
+        var id = _dwellId;
+        ClearNavHighlight();
+        _dwellId = null;
+        if (id != _pageId) ShowPage(id);
+    }
+
+    void OnAutoScroll()
+    {
+        if (_held == null || !_dragging || _dropping) return;
+        if (CurrentPage() is not ICardPage page) return;
+        var sv = page.Scroller;
+        if (sv == null || sv.ScrollableHeight <= 0.5) return;
+        var sp = _dragLayer.TranslatePoint(_lastPtr, sv);
+        const double edge = 42;
+        double dy = 0;
+        if (sp.Y < edge && sp.Y > -24) dy = -(edge - sp.Y) / edge * 14;
+        else if (sp.Y > sv.ActualHeight - edge && sp.Y < sv.ActualHeight + 24) dy = (sp.Y - (sv.ActualHeight - edge)) / edge * 14;
+        if (Math.Abs(dy) < 0.2) return;
+        sv.ScrollToVerticalOffset(Math.Clamp(sv.VerticalOffset + dy, 0, sv.ScrollableHeight));
+        UpdateDropTarget(_lastPtr);
+    }
+
+    // ---- Soltar ----
+    void EndDrag(bool cancel)
+    {
+        if (_held == null || _ending) return;
+        _ending = true;
+        _dwellT.Stop(); _scrollT.Stop(); ClearNavHighlight(); _dwellId = null;
+        _dragLayer.ReleaseMouseCapture();
+        var h = _held;
+
+        if (!_dragging)       // foi só um clique, sem arrastar
+        {
+            _held = null; _ending = false;
+            _dragLayer.IsHitTestVisible = false; _dragLayer.Background = null;
+            return;
+        }
+
+        if (cancel && _snap != null) { CardCatalog.Restore(_snap); RelayoutAllBoards(); }
+        else { CardCatalog.SyncHomeOrder(); Settings.Save(); }
+        SyncGuests();
+
+        // o cartão fantasma desliza (com mola) até o espaço reservado e só então o cartão de verdade reaparece
+        _dropping = true;
+        Point? dest = null;
+        if (h.Parent is Grid g && g.IsLoaded && g.IsVisible && CurrentPage() is ICardPage cp && cp.Board.Contains(h))
+            dest = cp.Board.OriginIn(h, _dragLayer);
+        if (dest == null) { FinishDrop(); return; }
+        _gx.To(dest.Value.X, 0, 480, 25); _gy.To(dest.Value.Y, 0, 480, 25); _gs.To(1, 0, 380, 14);
+        _dragLoop.Kick();
+    }
+
+    void FinishDrop()
+    {
+        _dropping = false; _dragging = false;
+        if (_ghost != null) { _dragLayer.Children.Remove(_ghost); _ghost = null; }
+        _dragLayer.IsHitTestVisible = false; _dragLayer.Background = null;
+        var h = _held; _held = null; _ending = false; _snap = null;
+        if (h == null) return;
+        h.SetPlaceholder(false);
+        if (S.Animations) h.Pulse();
+    }
+
+    // ---------------- Animation frame step ----------------
+    // (o antigo Soft aplicava BlurEffect de software a cada quadro — removido: opacidade basta e é barata)
     void Frame()
     {
-        double w = _w.Value, h = _h.Value;
+        // Mola pode ultrapassar zero no fechamento rápido: geometria nunca recebe valor negativo
+        // (Math.Clamp(x, 0, negativo) lançava ArgumentException e abortava o resto do quadro).
+        double w = Math.Max(1, _w.Value), h = Math.Max(1, _h.Value);
         double rb = Math.Clamp(_r.Value, 0, Math.Min(w, h) / 2);
-        _island.Width = Math.Max(1, w); _island.Height = Math.Max(1, h);
+        _island.Width = w; _island.Height = h;
         if (Floating)
         {
-            var g = Geo.Round(w, h, rb, rb);
-            _island.Clip = g; _outline.Data = g;
+            if (_roundClip == null) _roundClip = new RectangleGeometry();
+            // voltando do Clássico o recorte precisa ser reatribuído (senão fica a silhueta do notch)
+            if (!ReferenceEquals(_island.Clip, _roundClip)) { _island.Clip = _roundClip; _outline.Data = _roundClip; }
+            _roundClip.Rect = new Rect(0, 0, w, h);
+            _roundClip.RadiusX = _roundClip.RadiusY = rb;
         }
         else
         {
@@ -782,14 +1257,15 @@ public sealed class IslandWindow : Window
         _mini.Opacity = Math.Clamp(_miniO.Value, 0, 1);
         _banner.Opacity = Math.Clamp(_bannerO.Value, 0, 1);
         _exp.Opacity = Math.Clamp(_expO.Value, 0, 1);
-        Soft(_mini); Soft(_banner);                      // só nos elementos pequenos; blur no painel grande engasgava a animação
-        if (_exp.Effect != null) _exp.Effect = null;
         _expScale.ScaleX = _expScale.ScaleY = _expS.Value;
         _expShift.Y = _expY.Value;
         double stretch = Math.Min(Math.Abs(_dotX.Velocity) * 0.014, 14);   // squash & stretch da lente (vertical)
-        _navDot.Height = LensH + stretch;
-        _navDot.Width = LensW - Math.Min(stretch * 0.2, 4);
-        ((TranslateTransform)_navDot.RenderTransform).Y = _dotX.Value - stretch / 2;
+        _dotScale.ScaleY = (LensH + stretch) / LensH;
+        _dotScale.ScaleX = (LensW - Math.Min(stretch * 0.2, 4)) / LensW;
+        _dotShift.Y = _dotX.Value - stretch / 2;
+        // A borda responde à física (identidade TzIsland): espessa um pouco no movimento, volta ao repouso.
+        // (espessura e não opacidade, para o repouso continuar idêntico ao de antes)
+        _outline.StrokeThickness = 0.8 + Math.Min(0.35, (Math.Abs(_w.Velocity) + Math.Abs(_h.Velocity)) / 3000);
         // Cada ícone acende e cresce conforme a lente passa por ele (tudo sincronizado com o movimento da lente).
         double lensC = _dotX.Value + LensH / 2;
         var off = ((SolidColorBrush)K.Label).Color; var on = ((SolidColorBrush)K.White).Color;
@@ -799,23 +1275,22 @@ public sealed class IslandWindow : Window
             if (_navBrush.TryGetValue(kv.Key, out var br)) br.Color = FK.Lerp(off, on, near);
             if (_navScale.TryGetValue(kv.Key, out var sc)) sc.ScaleX = sc.ScaleY = 1 + 0.09 * near;
         }
-        _mini.Width = Math.Max(1, Math.Min(w, CollapsedWidthNow) - 2 * MiniEar);
-
-        if (_incoming != null)
+        double mw = Math.Max(1, Math.Min(w, CollapsedWidthNow) - 2 * MiniEar);
+        if (Math.Abs(_mini.Width - mw) > 0.2) _mini.Width = mw;   // só quando muda de verdade: menos layout por quadro
+        // A fase visual vira "assentada" quando todas as molas param (é o que os gestos leem).
+        if (_phase != Phase.Settled && _w.Settled && _h.Settled && _r.Settled
+            && _miniO.Settled && _bannerO.Settled && _expO.Settled && _expS.Settled && _expY.Settled)
+            _phase = Phase.Settled;
+        // Sombra: mesma silhueta, um halo por baixo. No modo Clássico o topo é reto (só as bases arredondam).
+        if (S.WindowShadow)
         {
-            // Troca em sequência: a página antiga sai primeiro (0 → 30%) e só então a nova entra (22% → 100%),
-            // assim nunca há duas páginas visíveis ao mesmo tempo (sem "ghosting").
-            double t = _pg.Value;
-            double tin = Math.Clamp((t - 0.3) / 0.7, 0, 1), tout = Math.Clamp(t / 0.3, 0, 1);
-            _incoming.Opacity = tin;
-            ((TranslateTransform)_incoming.RenderTransform).Y = (1 - t) * 26 * _dir;
-            if (_outgoing != null)
-            {
-                _outgoing.Opacity = 1 - tout;
-                if (tout >= 1) _outgoing.Visibility = Visibility.Hidden;
-                ((TranslateTransform)_outgoing.RenderTransform).Y = -tout * 18 * _dir;
-            }
-            if (_pg.Settled) FinishTransition();
+            // Só no modo Flutuante: no Clássico a silhueta tem ombros côncavos e um halo retangular
+            // deixaria preto nos "ears" (a ilha é colada na borda da tela — sombra ali não faz sentido).
+            _shadowBox.Opacity = Floating ? (S.Look == IslandLook.SolidBlack ? 0.62 : 0.42) : 0;
+            Canvas.SetLeft(_shadowBox, (Width - w) / 2);
+            Canvas.SetTop(_shadowBox, _island.Margin.Top);
+            _shadowBox.Width = w; _shadowBox.Height = h;
+            _shadowBox.CornerRadius = new CornerRadius(rb);
         }
         UpdateRegion();
     }
@@ -958,8 +1433,8 @@ public sealed class IslandWindow : Window
         ShowHud(next ? "skip-forward" : "skip-back", null, "", next ? "Próxima faixa" : "Faixa anterior");
         if (S.Animations)
         {
-            var nudge = new DoubleAnimation(next ? -12 : 12, 0, TimeSpan.FromMilliseconds(520)) { EasingFunction = new ElasticEase { Oscillations = 1, Springiness = 5, EasingMode = EasingMode.EaseOut } };
-            _miniShift.BeginAnimation(TranslateTransform.XProperty, nudge);
+            MotionEngine.Jump(_miniShift, TranslateTransform.XProperty, next ? -12 : 12);
+            MotionEngine.To(_miniShift, TranslateTransform.XProperty, 0, Tz.Springs.Sheet);
         }
     }
 
@@ -981,8 +1456,8 @@ public sealed class IslandWindow : Window
     void FadeHud(bool on)
     {
         _hud.IsHitTestVisible = false;
-        double ms = S.Animations ? (on ? 140 : 320) : 1;
-        _hud.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(on ? 1 : 0, TimeSpan.FromMilliseconds(ms)) { EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut } });
+        if (!S.Animations) MotionEngine.Jump(_hud, UIElement.OpacityProperty, on ? 1 : 0);
+        else MotionEngine.To(_hud, UIElement.OpacityProperty, on ? 1 : 0, on ? Tz.Springs.Fade.With(2, 1.4) : Tz.Springs.Fade);
     }
 
     // ---------------- Cor dinâmica da capa ----------------
@@ -991,8 +1466,8 @@ public sealed class IslandWindow : Window
         var c = S.DynamicCoverColor ? Svc.Media.Accent : Colors.White;
         if (c == _accentTarget) return;
         _accentTarget = c;
-        if (S.Animations) _accent.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(c, TimeSpan.FromMilliseconds(600)) { EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut } });
-        else { _accent.BeginAnimation(SolidColorBrush.ColorProperty, null); _accent.Color = c; }
+        if (S.Animations) MotionEngine.ToColor(_accent, SolidColorBrush.ColorProperty, c, 600);
+        else MotionEngine.SetColor(_accent, SolidColorBrush.ColorProperty, c);
     }
 
     void ArmCollapse()
@@ -1003,7 +1478,7 @@ public sealed class IslandWindow : Window
         _collapseT.Start();
     }
 
-    bool KeepOpen => CurrentPage()?.KeepOpen == true || IsKeyboardFocusWithin && Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase
+    bool KeepOpen => _edit || CurrentPage()?.KeepOpen == true || IsKeyboardFocusWithin && Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase
                      || _island.ContextMenu?.IsOpen == true || Mouse.Captured != null;
 
     void OnCollapseTick(object? s, EventArgs e)
@@ -1102,24 +1577,31 @@ public sealed class IslandWindow : Window
             Log.Write($"ilha recolhida: {prev} -> {mode} (mídia: sessão={Svc.Media.HasSession} tocando={Svc.Media.Playing} título=\"{Svc.Media.Title}\" app=\"{Svc.Media.App}\"; timer={(info == null ? "nenhum" : info.Kind.ToString())})");
             LayoutLive(mode);
             bool first = _liveShown == Live.None && prev == Live.None && _ledOn == null;
-            double ms = first || !S.Animations ? 1 : 300;
-            var ease = new SineEase { EasingMode = EasingMode.EaseInOut };
-            if (prev == Live.None || mode == Live.None)
+            if (first || !S.Animations)
             {
-                _miniLive.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(mode == Live.None ? 0 : 1, TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease });
-                _ledHost.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(mode == Live.None ? 1 : 0, TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease });
+                MotionEngine.Jump(_miniLive, UIElement.OpacityProperty, mode == Live.None ? 0 : 1);
+                MotionEngine.Jump(_ledHost, UIElement.OpacityProperty, mode == Live.None ? 1 : 0);
+            }
+            else if (prev == Live.None || mode == Live.None)
+            {
+                MotionEngine.To(_miniLive, UIElement.OpacityProperty, mode == Live.None ? 0 : 1, Tz.Springs.Settle);
+                MotionEngine.To(_ledHost, UIElement.OpacityProperty, mode == Live.None ? 1 : 0, Tz.Springs.Settle);
             }
             else   // trocou de combinação: a faixa some e volta já reorganizada
-                _miniLive.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease });
+            {
+                MotionEngine.Jump(_miniLive, UIElement.OpacityProperty, 0);
+                MotionEngine.To(_miniLive, UIElement.OpacityProperty, 1, Tz.Springs.Fade, 0.05);
+            }
             _liveShown = mode;
-            if (_st == St.Collapsed)
+            // Um único escritor da largura — e nunca durante uma transição em voo (a fase manda).
+            if (_st == St.Collapsed && _phase == Phase.Settled)
             {
                 var (w, _, _) = Target(St.Collapsed);
                 if (S.Animations) _w.To(w, 0, 380, 24); else _w.Snap(w);
                 _loop.Kick();
             }
         }
-        _miniEq.Running = (mode == Live.Media || mode == Live.Both) && _st == St.Collapsed;
+        _miniEq.Running = (mode == Live.Media || mode == Live.Both) && _st == St.Collapsed && IsVisible;
     }
 
     // ---------------- Próximo compromisso ----------------
@@ -1173,31 +1655,35 @@ public sealed class IslandWindow : Window
     {
         _dlRunning = true; _dlFinishing = false;
         double w = DlWidth, seg = Math.Max(30, w * 0.38);
-        _dlFill.BeginAnimation(WidthProperty, null);
+        MotionEngine.Jump(_dlFill, WidthProperty, seg);
         _dlFill.Background = _accent;                     // acompanha a cor da capa quando há música
-        _dlFill.Width = seg;
-        var sweep = new DoubleAnimation(-seg, w, TimeSpan.FromMilliseconds(1150)) { RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut } };
-        _dlShift.BeginAnimation(TranslateTransform.XProperty, sweep);
-        _dlBar.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(S.Animations ? 260 : 1)));
+        _dlSweep?.Stop();
+        _dlSweep = MotionEngine.Wave(_dlShift, TranslateTransform.XProperty, t =>
+        {
+            double k = (t * 1000 % 1150) / 1150;           // varredura em laço, sem storyboard infinito
+            return -seg + (w + seg) * (0.5 - 0.5 * Math.Cos(Math.PI * k));
+        });
+        if (S.Animations) MotionEngine.To(_dlBar, UIElement.OpacityProperty, 1, Tz.Springs.Fade);
+        else MotionEngine.Jump(_dlBar, UIElement.OpacityProperty, 1);
     }
 
     /// <summary>O arquivo terminou de verdade: a barra enche até o fim (verde) e some.</summary>
     void FinishDlBar()
     {
         _dlFinishing = true;
-        _dlShift.BeginAnimation(TranslateTransform.XProperty, null); _dlShift.X = 0;
+        _dlSweep?.Stop(); _dlSweep = null;
+        MotionEngine.Jump(_dlShift, TranslateTransform.XProperty, 0);
         _dlFill.Background = K.Green;
-        var fill = new DoubleAnimation(DlWidth, TimeSpan.FromMilliseconds(S.Animations ? 320 : 1)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-        _dlFill.BeginAnimation(WidthProperty, fill);
+        if (S.Animations) MotionEngine.To(_dlFill, WidthProperty, DlWidth, Tz.Springs.Sheet);
+        else MotionEngine.Jump(_dlFill, WidthProperty, DlWidth);
     }
 
     void StopDlBar()
     {
         _dlRunning = _dlFinishing = false;
-        _dlBar.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(S.Animations ? 380 : 1)));
-        var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
-        t.Tick += (_, _) => { t.Stop(); if (!_dlRunning) { _dlShift.BeginAnimation(TranslateTransform.XProperty, null); _dlFill.BeginAnimation(WidthProperty, null); _dlFill.Width = 0; } };
-        t.Start();
+        _dlSweep?.Stop(); _dlSweep = null;
+        MotionEngine.To(_dlBar, UIElement.OpacityProperty, 0, Tz.Springs.Fade);
+        MotionEngine.To(_dlFill, WidthProperty, 0, Tz.Springs.Fade, 0.1);
     }
 
     void LayoutLive(Live m)
@@ -1215,7 +1701,8 @@ public sealed class IslandWindow : Window
 
     void SetLed(bool active)
     {
-        if (!_ledPulsing && S.Animations)
+        // A respiração só existe com a pílula visível (expandida ela fica oculta e custaria quadros à toa).
+        if (!_ledPulsing && S.Animations && _st == St.Collapsed)
         {
             _ledPulsing = true;
             _ledIdle.Pulse(1700);     // ocioso: respiração lenta
@@ -1226,14 +1713,23 @@ public sealed class IslandWindow : Window
         _ledOn = active;
         if (first || !S.Animations)
         {
-            _ledIdle.BeginAnimation(UIElement.OpacityProperty, null); _ledActive.BeginAnimation(UIElement.OpacityProperty, null);
-            _ledIdle.Opacity = active ? 0 : 1; _ledActive.Opacity = active ? 1 : 0;
+            MotionEngine.Jump(_ledIdle, UIElement.OpacityProperty, active ? 0 : 1);
+            MotionEngine.Jump(_ledActive, UIElement.OpacityProperty, active ? 1 : 0);
             return;
         }
-        var sine = new SineEase { EasingMode = EasingMode.EaseInOut };
-        _ledIdle.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(active ? 0 : 1, TimeSpan.FromMilliseconds(550)) { EasingFunction = sine });
-        _ledActive.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(active ? 1 : 0, TimeSpan.FromMilliseconds(550)) { EasingFunction = sine });
+        MotionEngine.To(_ledIdle, UIElement.OpacityProperty, active ? 0 : 1, Tz.Springs.Settle);
+        MotionEngine.To(_ledActive, UIElement.OpacityProperty, active ? 1 : 0, Tz.Springs.Settle);
     }
+
+    // ---------------- Medidor de quadro (Etapa 0) ----------------
+    void ToggleStats()
+    {
+        _statsOn = !_statsOn;
+        _statsBox.Visibility = _statsOn ? Visibility.Visible : Visibility.Collapsed;
+        if (_statsOn) { UpdateStats(); _statsT.Start(); } else _statsT.Stop();
+    }
+
+    void UpdateStats() => _statsText.Text = MotionStats.Line();
 
     static string Trim(string s, int n) => s.Length > n ? s[..n] + "…" : s;
 
@@ -1286,6 +1782,8 @@ public sealed class IslandWindow : Window
         // Antes: SHQueryUserNotificationState com o estado 2 (BUSY), que dispara com o foco na área de trabalho e em outras janelas
         // grandes, fazendo a ilha sumir. Agora só conta tela cheia de verdade: janela em primeiro plano cobrindo o monitor da ilha
         // (ignorando desktop e barra de tarefas) ou os estados D3D/apresentação do Windows.
+        // Modo "normal" em tela cheia: não há nada a detectar (economiza enumeração de processos a cada 2 s).
+        if (S.Fullscreen == FullscreenMode.Keep) { _noExpand = false; return; }
         bool fs = IsForegroundFullscreen();
         try { if (!fs && Native.SHQueryUserNotificationState(out int st) == 0) fs = st is 3 or 4; } catch { }
         // A camada de captura de tela (Win+Shift+S, Print Screen, ShareX...) cobre a tela inteira, mas não é um app em tela cheia:

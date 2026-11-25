@@ -70,9 +70,49 @@ public static class AnimProfiles
         CK = 260, CC = 19, CShapeDelay = 0.03, COK = 700, COC = 52, SOut = 0.8, CSK = 380, CSC = 26, YOut = 0, MiniDelay = 0.10
     };
 
-    public static AnimProfile Get(IslandAnim a) => a switch
+    public static AnimProfile Get(IslandAnim a)
     {
-        IslandAnim.Elastic => Elastic, IslandAnim.Crystal => Crystal, IslandAnim.Precise => Precise, IslandAnim.Bubble => Bubble, _ => Fluid
+        var p = a switch
+        {
+            IslandAnim.Elastic => Elastic, IslandAnim.Crystal => Crystal, IslandAnim.Precise => Precise, IslandAnim.Bubble => Bubble, _ => Fluid
+        };
+        return Scale(p, Settings.Current.MotionIntensity);
+    }
+
+    /// <summary>
+    /// Intensidade global: cada estilo é um preset sobre a MESMA base de física.
+    /// Discreto reduz amplitude, atrasa um pouco e decai mais rápido; Expressivo amplia sem virar elástico.
+    /// Natural devolve o preset intacto (comportamento idêntico ao de antes).
+    /// </summary>
+    static AnimProfile Scale(AnimProfile p, MotionIntensity i)
+    {
+        if (i == MotionIntensity.Natural) return p;
+        bool quiet = i == MotionIntensity.Discreet;
+        double amp = quiet ? 0.55 : 1.30;
+        double k = quiet ? 0.80 : 1.12;      // rigidez
+        double c = quiet ? 1.15 : 0.94;      // amortecimento (sobe junto no Discreto: menos sobra)
+        double delay = quiet ? 1.20 : 0.90;
+        double stag = quiet ? 0.60 : 1.15;   // defasagem da cascata
+        return new AnimProfile
+        {
+            Name = p.Name, Hint = p.Hint,
+            WK = p.WK * k, WC = p.WC * c, HK = p.HK * k, HC = p.HC * c, RK = p.RK * k, RC = p.RC * c,
+            HDelay = p.HDelay * delay, RDelay = p.RDelay * delay,
+            ODelay = p.ODelay * delay, OK = p.OK * k, OC = p.OC * c,
+            SStart = 1 - (1 - p.SStart) * amp, SDelay = p.SDelay * delay, SK = p.SK * k, SC = p.SC * c,
+            YStart = p.YStart * amp, YDelay = p.YDelay * delay, YK = p.YK * k, YC = p.YC * c,
+            RevealBase = p.RevealBase * delay, RevealStep = p.RevealStep * stag,
+            RevealY = p.RevealY * amp, RevealScale = 1 - (1 - p.RevealScale) * amp,
+            CK = p.CK * k, CC = p.CC * c, CShapeDelay = p.CShapeDelay * delay,
+            COK = p.COK * k, COC = p.COC * c,
+            SOut = 1 - (1 - p.SOut) * amp, CSK = p.CSK * k, CSC = p.CSC * c,
+            YOut = p.YOut * amp, MiniDelay = p.MiniDelay * delay
+        };
+    }
+
+    public static readonly (string, MotionIntensity)[] AllIntensity =
+    {
+        ("Discreto", MotionIntensity.Discreet), ("Natural", MotionIntensity.Natural), ("Expressivo", MotionIntensity.Expressive)
     };
 
     public static readonly (string, IslandAnim)[] All =

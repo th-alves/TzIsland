@@ -8,11 +8,13 @@ public sealed class Spring
 {
     public double Value, Velocity, Target;
     public double Stiffness = 300, Damping = 28;
+    /// <summary>Tolerâncias próprias: comprimento em px, razão e opacidade usam valores diferentes.</summary>
+    public double Epsilon = 0.01, VelocityEpsilon = 0.02;
     double _delay;
 
     public Spring(double v) { Value = Target = v; }
 
-    public bool Settled => _delay <= 0 && Math.Abs(Value - Target) < 0.01 && Math.Abs(Velocity) < 0.02;
+    public bool Settled => _delay <= 0 && Math.Abs(Value - Target) < Epsilon && Math.Abs(Velocity) < VelocityEpsilon;
 
     public Spring To(double target, double delay = 0, double stiffness = 0, double damping = 0)
     {
@@ -23,11 +25,21 @@ public sealed class Spring
         return this;
     }
 
+    public Spring Tune(double epsilon, double velocityEpsilon = 0.02)
+    {
+        Epsilon = epsilon; VelocityEpsilon = velocityEpsilon;
+        return this;
+    }
+
     public void Snap(double v) { Value = Target = v; Velocity = 0; _delay = 0; }
+
+    /// <summary>Encerra no valor atual (sem saltar): usado quando outra animação assume a propriedade.</summary>
+    public void Cancel() { Target = Value; Velocity = 0; _delay = 0; }
 
     public void Step(double dt)
     {
         if (_delay > 0) { _delay -= dt; return; }
+        if (dt <= 0) return;
         int n = Math.Max(1, (int)Math.Ceiling(dt / 0.004));
         double h = dt / n;
         for (int i = 0; i < n; i++)
@@ -36,42 +48,33 @@ public sealed class Spring
             Velocity += a * h;
             Value += Velocity * h;
         }
-        if (Math.Abs(Value - Target) < 0.01 && Math.Abs(Velocity) < 0.02) { Value = Target; Velocity = 0; }
+        if (Math.Abs(Value - Target) < Epsilon && Math.Abs(Velocity) < VelocityEpsilon) { Value = Target; Velocity = 0; }
     }
 }
 
-/// <summary>Loop de animação que só roda enquanto houver mola em movimento (zero custo em repouso).</summary>
-public sealed class MotionLoop
+/// <summary>
+/// Conjunto de molas que anda junto. Não abre assinatura própria de render: registra-se no
+/// <see cref="MotionHost"/>, que é o dono único do relógio (um dt por quadro para o app inteiro).
+/// </summary>
+public sealed class MotionLoop : IFrameSink
 {
     readonly List<Spring> _springs = new();
     readonly Action _frame;
-    bool _on;
-    long _last;
 
     public MotionLoop(Action frame) { _frame = frame; }
 
     public Spring Add(Spring s) { _springs.Add(s); return s; }
 
-    public void Kick()
-    {
-        if (_on) return;
-        _on = true;
-        _last = Stopwatch.GetTimestamp();
-        CompositionTarget.Rendering += OnRender;
-    }
+    public void Kick() => MotionHost.Attach(this);
 
-    void OnRender(object? sender, EventArgs e)
+    public void Stop() => MotionHost.Detach(this);
+
+    public bool Step(double dt)
     {
-        long now = Stopwatch.GetTimestamp();
-        double dt = Math.Min(0.05, (now - _last) / (double)Stopwatch.Frequency);
-        _last = now;
         foreach (var s in _springs) s.Step(dt);
         _frame();
-        if (_springs.All(s => s.Settled))
-        {
-            CompositionTarget.Rendering -= OnRender;
-            _on = false;
-        }
+        foreach (var s in _springs) if (!s.Settled) return true;
+        return false;
     }
 }
 
@@ -107,8 +110,9 @@ public static class NotchGeo
     /// </summary>
     public static (Geometry fill, Geometry line) Make(double w, double h, double r, double rb)
     {
-        r = Math.Clamp(r, 0, Math.Min(w / 4, h / 2));
-        rb = Math.Clamp(rb, 0, Math.Min((w - 2 * r) / 2, h - r));
+        // Math.Clamp com máximo negativo lança: durante um overshoot de mola a forma pode chegar degenerada.
+        r = Math.Clamp(r, 0, Math.Max(0, Math.Min(w / 4, h / 2)));
+        rb = Math.Clamp(rb, 0, Math.Max(0, Math.Min((w - 2 * r) / 2, h - r)));
         var sz = new Size(Math.Max(0.01, r), Math.Max(0.01, r)); var sb = new Size(Math.Max(0.01, rb), Math.Max(0.01, rb));
 
         var fill = new StreamGeometry();
@@ -144,17 +148,22 @@ public static class NotchGeo
 }
 
 /// <summary>
-/// Camada de "motion design" baseada em molas (mesma ideia do Framer Motion / React Spring): entradas em cascata,
-/// presets de física e animações interrompíveis que preservam a velocidade. Sem dependências externas.
+/// Camada de "motion design" do app. Entradas em cascata, presets de física e animações
+/// interrompíveis: tudo passa pelo <see cref="MotionEngine"/>, que garante um único dono por propriedade.
 /// </summary>
 public static class Motion
 {
     // Presets (rigidez, amortecimento)
     public static readonly (double k, double c) Snappy = (520, 38), Smooth = (260, 30), Bouncy = (300, 16), Gentle = (170, 24), Wobbly = (200, 12);
 
-    static (ScaleTransform sc, TranslateTransform tt) Transforms(FrameworkElement el)
+    /// <summary>
+    /// Canais de transformação do elemento, na ordem que o motor espera: (escala, deslocamento).
+    /// Reaproveita o grupo existente para não perder inclinação nem outras transformações.
+    /// </summary>
+    public static (ScaleTransform sc, TranslateTransform tt) Channels(FrameworkElement el)
     {
-        if (el.RenderTransform is TransformGroup g && !g.IsFrozen && g.Children.Count >= 2 && g.Children[0] is ScaleTransform s && g.Children[1] is TranslateTransform t)
+        if (el.RenderTransform is TransformGroup g && !g.IsFrozen && g.Children.Count >= 2
+            && g.Children[0] is ScaleTransform s && g.Children[1] is TranslateTransform t)
             return (s, t);
         var sc = new ScaleTransform(1, 1); var tt = new TranslateTransform();
         el.RenderTransformOrigin = new Point(0.5, 0.5);
@@ -162,31 +171,24 @@ public static class Motion
         return (sc, tt);
     }
 
+    static (ScaleTransform sc, TranslateTransform tt) Transforms(FrameworkElement el) => Channels(el);
+
     /// <summary>Faz o elemento surgir: fade rápido + subida com mola + escala com leve overshoot.</summary>
-    public static void Reveal(FrameworkElement el, double delaySec = 0, double fromY = 18, double fromScale = 0.94)
+    public static void Reveal(FrameworkElement el, double delaySec = 0, double fromY = Tz.Dist.RevealY, double fromScale = Tz.Dist.RevealScale)
     {
         var (sc, tt) = Transforms(el);
-        // solta animações "seguradas" (ex.: hover dos cartões) para que os valores abaixo valham
-        el.BeginAnimation(UIElement.OpacityProperty, null);
-        tt.BeginAnimation(TranslateTransform.YProperty, null);
-        sc.BeginAnimation(ScaleTransform.ScaleXProperty, null); sc.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-
-        var o = new Spring(0); var s = new Spring(fromScale); var y = new Spring(fromY);
-        el.Opacity = 0; sc.ScaleX = sc.ScaleY = fromScale; tt.Y = fromY;
-        var loop = new MotionLoop(() =>
-        {
-            el.Opacity = Math.Clamp(o.Value, 0, 1);
-            sc.ScaleX = sc.ScaleY = s.Value;
-            tt.Y = y.Value;
-        });
-        loop.Add(o); loop.Add(s); loop.Add(y);
-        o.To(1, delaySec, 380, 36);
-        s.To(1, delaySec, 260, 16);
-        y.To(0, delaySec, 250, 19);
-        loop.Kick();
+        // A posse é do motor: nenhuma animação anterior fica "presa" nessas propriedades.
+        MotionEngine.Jump(el, UIElement.OpacityProperty, 0);
+        MotionEngine.Jump(tt, TranslateTransform.YProperty, fromY);
+        MotionEngine.Jump(sc, ScaleTransform.ScaleXProperty, fromScale);
+        MotionEngine.Jump(sc, ScaleTransform.ScaleYProperty, fromScale);
+        MotionEngine.To(el, UIElement.OpacityProperty, 1, Tz.Springs.Fade, delaySec);
+        MotionEngine.To(tt, TranslateTransform.YProperty, 0, Tz.Springs.Content, delaySec);
+        MotionEngine.To(sc, ScaleTransform.ScaleXProperty, 1, new SpringSpec(260, 16), delaySec);
+        MotionEngine.To(sc, ScaleTransform.ScaleYProperty, 1, new SpringSpec(260, 16), delaySec);
     }
 
-    public static void RevealAll(IEnumerable<FrameworkElement> items, double baseDelay = 0.06, double step = 0.055, double fromY = 18, double fromScale = 0.94)
+    public static void RevealAll(IEnumerable<FrameworkElement> items, double baseDelay = 0.06, double step = Tz.Delays.Stagger, double fromY = Tz.Dist.RevealY, double fromScale = Tz.Dist.RevealScale)
     {
         int i = 0;
         foreach (var el in items) Reveal(el, baseDelay + (i++) * step, fromY, fromScale);
@@ -210,10 +212,63 @@ public static class Motion
         return list;
     }
 
-    public static void RevealPage(IPage page, double baseDelay = 0.08, double step = 0.055, double fromY = 18, double fromScale = 0.94)
+    public static void RevealPage(IPage page, double baseDelay = 0.08, double step = Tz.Delays.Stagger, double fromY = Tz.Dist.RevealY, double fromScale = Tz.Dist.RevealScale)
     {
         var targets = page is PageBase pb ? pb.RevealTargets.ToList() : Targets(page.View);
         // (sem fallback: a View da página usa um TranslateTransform próprio na troca de abas e não pode ser trocado)
         RevealAll(targets, baseDelay, step, fromY, fromScale);
+    }
+
+    /// <summary>Deslocamento vertical do elemento, criando o canal se necessário (sem sobrescrever escala).</summary>
+    static TranslateTransform Slide(FrameworkElement el)
+    {
+        if (el.RenderTransform is TransformGroup g && !g.IsFrozen && g.Children.OfType<TranslateTransform>().Any())
+            return g.Children.OfType<TranslateTransform>().First();
+        if (el.RenderTransform is TranslateTransform tt && !tt.IsFrozen) return tt;
+        var n = new TranslateTransform();
+        el.RenderTransform = n;
+        return n;
+    }
+
+    /// <summary>
+    /// Entrada de item de lista. Antes usava storyboard com FillBehavior.HoldEnd (a opacidade ficava
+    /// "presa" em 1 e brigava com o reveal). Agora é track com posse: quem chamar depois assume.
+    /// </summary>
+    public static void FadeIn(UIElement el, int delayMs = 0, double fromY = 10)
+    {
+        double delay = Math.Max(0, delayMs) / 1000.0;
+        MotionEngine.Jump(el, UIElement.OpacityProperty, 0);
+        MotionEngine.To(el, UIElement.OpacityProperty, 1, Tz.Springs.Fade, delay);
+        if (el is FrameworkElement fe)
+        {
+            var tt = Slide(fe);
+            MotionEngine.Jump(tt, TranslateTransform.YProperty, fromY);
+            MotionEngine.To(tt, TranslateTransform.YProperty, 0, Tz.Springs.Content, delay);
+        }
+    }
+
+    /// <summary>Desloca o elemento verticalmente agora, sem animar (ponto de partida de uma entrada).</summary>
+    public static void SetSlide(FrameworkElement el, double y)
+    {
+        if (el.RenderTransform is TranslateTransform t) MotionEngine.Jump(t, TranslateTransform.YProperty, y);
+        else if (el.RenderTransform is TransformGroup g && g.Children.Count >= 2 && g.Children[1] is TranslateTransform t2)
+            MotionEngine.Jump(t2, TranslateTransform.YProperty, y);
+    }
+
+    /// <summary>Anima o deslocamento vertical até <paramref name="y"/>, com atraso opcional.</summary>
+    public static void SlideTo(FrameworkElement el, double y, double delay = 0)
+    {
+        if (el.RenderTransform is TranslateTransform t) MotionEngine.To(t, TranslateTransform.YProperty, y, Tz.Springs.Content, delay);
+        else if (el.RenderTransform is TransformGroup g && g.Children.Count >= 2 && g.Children[1] is TranslateTransform t2)
+            MotionEngine.To(t2, TranslateTransform.YProperty, y, Tz.Springs.Content, delay);
+    }
+
+    /// <summary>Encerra animações dessas propriedades e grava o valor (usado ao desmontar uma página).</summary>
+    public static void Rest(FrameworkElement el, double opacity = 1, double y = 0)
+    {
+        MotionEngine.Jump(el, UIElement.OpacityProperty, opacity);
+        if (el.RenderTransform is TranslateTransform t) MotionEngine.Jump(t, TranslateTransform.YProperty, y);
+        else if (el.RenderTransform is TransformGroup g && g.Children.Count >= 2 && g.Children[1] is TranslateTransform t2)
+            MotionEngine.Jump(t2, TranslateTransform.YProperty, y);
     }
 }

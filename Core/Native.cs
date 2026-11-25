@@ -9,6 +9,8 @@ internal static class Native
     public const int WS_EX_NOACTIVATE = 0x08000000;
     public const int WM_HOTKEY = 0x0312;
     public const int WM_CLIPBOARDUPDATE = 0x031D;
+    public const int WM_NCHITTEST = 0x0084;
+    public const int HTTRANSPARENT = -1;      // clique atravessa: o halo da sombra não rouba cliques dos apps de baixo
     public const uint SWP_NOSIZE = 0x1, SWP_NOZORDER = 0x4, SWP_NOACTIVATE = 0x10;
 
     [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }

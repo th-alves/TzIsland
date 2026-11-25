@@ -162,9 +162,8 @@ sealed class NotesView : PageBase
         if (list) RefreshList();
         var tt = (TranslateTransform)_segHl.RenderTransform;
         double x = list ? 0 : 30;
-        if (animate && Settings.Current.Animations)
-            tt.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(x, TimeSpan.FromMilliseconds(260)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
-        else { tt.BeginAnimation(TranslateTransform.XProperty, null); tt.X = x; }
+        if (animate && Settings.Current.Animations) MotionEngine.To(tt, TranslateTransform.XProperty, x, Tz.Springs.Lens);
+        else MotionEngine.Jump(tt, TranslateTransform.XProperty, x);
         if (_maximized) ToggleMax();
     }
 

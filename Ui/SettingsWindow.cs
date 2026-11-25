@@ -56,6 +56,7 @@ public sealed class SettingsWindow : Window
         AddTab(sp, "\uE71B", "Integrações", Integrations);
         AddTab(sp, "\uE765", "Atalhos", Hotkeys);
         AddTab(sp, "\uE72E", "Privacidade", Privacy);
+        AddTab(sp, "\uE9D9", "Diagnóstico", DiagnosticsTab);
         side.Child = sp;
         root.Children.Add(side);
 
@@ -79,6 +80,15 @@ public sealed class SettingsWindow : Window
         _nav.Add((b, g, t, build));
     }
 
+    bool _noFade;
+
+    /// <summary>Seleciona uma aba fora do fluxo de clique (modo --shot), sem fade de entrada.</summary>
+    public void SelectTabForShot(int i)
+    {
+        _noFade = true;
+        if (i >= 0 && i < _nav.Count) SelectTab(i);
+    }
+
     void SelectTab(int i)
     {
         if (i == _tab) return;
@@ -95,7 +105,8 @@ public sealed class SettingsWindow : Window
         var sv = K.Scroll(body);
         _pageHost.Children.Clear();
         _pageHost.Children.Add(sv);
-        K.FadeIn(sv, 0, 14);
+        if (_noFade) sv.Opacity = 1;   // render offscreen (--shot) não tem quadros para o fade
+        else K.FadeIn(sv, 0, 14);
     }
 
     // ---------------- Componentes ----------------
@@ -154,7 +165,8 @@ public sealed class SettingsWindow : Window
         box.Children.Add(top);
         var s = new PillSlider { Value = max > min ? (get() - min) / (max - min) : 0, Margin = new Thickness(0, 6, 0, 0) };
         var apply = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(70) };
-        apply.Tick += (_, _) => { apply.Stop(); Settings.Apply(); };
+        // Kind tipado: arrastar o slider não reconstrói a barra nem assenta as animações da ilha.
+        apply.Tick += (_, _) => { apply.Stop(); Settings.Apply(SettingsChange.Layout); };
         s.Changed += x =>
         {
             double val = min + x * (max - min);
@@ -264,8 +276,10 @@ public sealed class SettingsWindow : Window
         Section(p, "Efeitos e Fluidez");
         Check(p, "Animações físicas baseadas em molas", () => S.Animations, v => S.Animations = v);
         Combo(p, "Estilo da animação ao abrir e fechar", AnimProfiles.All, () => S.IslandAnim, v => S.IslandAnim = v);
+        Combo(p, "Intensidade do movimento", AnimProfiles.AllIntensity, () => S.MotionIntensity, v => { S.MotionIntensity = v; Settings.Apply(SettingsChange.Motion); });
         Note(p, "Fluida: padrão, em morph.  Elástica: passa do ponto e volta, estilo Alcove.  Cristal: lenta e sem quicar.  Precisa: rápida e seca.  Bolha: cresce do centro, cartão por cartão. Ao trocar, a ilha faz uma prévia sozinha.");
         Btn(p, "Pré-visualizar animação", () => Settings.RequestPreview());
+        Check(p, "Sombra externa (halo em volta da ilha)", () => S.WindowShadow, v => S.WindowShadow = v);
         Check(p, "Desfoque de fundo com a arte do álbum", () => S.MediaBlurBackground, v => S.MediaBlurBackground = v);
         Check(p, "Cor dinâmica da capa (espectro e barra de progresso)", () => S.DynamicCoverColor, v => S.DynamicCoverColor = v);
 
@@ -274,10 +288,79 @@ public sealed class SettingsWindow : Window
         Slide(p, "Volume dos sons (%)", 5, 100, () => Math.Round(S.SoundVolume * 100), v => S.SoundVolume = v / 100);
         Btn(p, "Testar som", () => { SoundFx.Open(); var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(650) }; t.Tick += (_, _) => { t.Stop(); SoundFx.Close(); }; t.Start(); });
         Note(p, "Os sons são gerados pelo próprio app (sem arquivos). Só tocam se a opção acima estiver ligada.");
-        Btn(p, "Restaurar layout padrão", () => { var d = new AppSettings(); S.Style = d.Style; S.Look = d.Look; S.Opacity = d.Opacity; S.BlurAmount = d.BlurAmount; S.ExpandedWidth = d.ExpandedWidth; S.ExpandedHeight = d.ExpandedHeight; S.CollapsedWidth = d.CollapsedWidth; S.CollapsedHeight = d.CollapsedHeight; S.Anchor = IslandAnchor.TopCenter; Settings.Apply(); Close(); ShowSingle(); });
+        Btn(p, "Restaurar layout padrão", () => { var d = new AppSettings(); S.Style = d.Style; S.Look = d.Look; S.Opacity = d.Opacity; S.BlurAmount = d.BlurAmount; S.ExpandedWidth = d.ExpandedWidth; S.ExpandedHeight = d.ExpandedHeight; S.CollapsedWidth = d.CollapsedWidth; S.CollapsedHeight = d.CollapsedHeight; S.Anchor = IslandAnchor.TopCenter; Settings.Apply(SettingsChange.Layout | SettingsChange.Look); Close(); ShowSingle(); });
         return p;
     }
 
+
+    // ---------------- Diagnóstico e dados ----------------
+
+    /// <summary>
+    /// Saúde do app: erros agrupados por assinatura (antes iam só para o log.txt que ninguém abre),
+    /// relatório copiável para abrir issue e backup dos dados locais.
+    /// </summary>
+    StackPanel DiagnosticsTab()
+    {
+        var p = Panel();
+        var status = K.T("", 11.5, K.Muted);
+        status.TextWrapping = TextWrapping.Wrap;
+        status.Margin = new Thickness(0, 8, 0, 4);
+
+        Section(p, "Saúde do app");
+        var box = new StackPanel { Margin = new Thickness(0, 2, 0, 6) };
+        void Refresh()
+        {
+            box.Children.Clear();
+            var head = K.T($"Sessão há {Diagnostics.Uptime:h\\:mm\\:ss} · {Diagnostics.Errors} erro(s) · {MotionStats.LongFrames} quadro(s) longo(s) de {MotionStats.Frames}", 12, K.Fg);
+            head.TextWrapping = TextWrapping.Wrap;
+            box.Children.Add(head);
+            var top = Diagnostics.Top(6);
+            if (top.Count == 0) box.Children.Add(K.T("Nenhum erro registrado nesta sessão.", 11.5, K.Dim).M(0, 4, 0, 0));
+            foreach (var (sig, n) in top)
+            {
+                var row = K.T($"{n}×  {sig}", 11.5, K.Dim);
+                row.TextWrapping = TextWrapping.Wrap;
+                row.Margin = new Thickness(0, 4, 0, 0);
+                box.Children.Add(row);
+            }
+            var last = Diagnostics.Recent(1).FirstOrDefault();
+            if (last != null) box.Children.Add(K.T($"último: {last.At:HH:mm:ss}", 10.5, K.Muted).M(0, 6, 0, 0));
+        }
+        Refresh();
+        Host(p).Children.Add(box);
+        Btn(p, "Atualizar", Refresh);
+        Btn(p, "Copiar relatório", () =>
+        {
+            try { Clipboard.SetText(Diagnostics.Report()); status.Text = "Relatório copiado — cole numa issue se algo estiver errado."; }
+            catch (Exception e) { Log.Write(e); status.Text = "Não foi possível copiar o relatório."; }
+        });
+        Btn(p, "Abrir pasta de dados", OpenDataFolder);
+        Btn(p, "Limpar registro", () => { Diagnostics.Clear(); Refresh(); status.Text = "Registro limpo."; });
+        Host(p).Children.Add(status);
+
+        Section(p, "Dados");
+        Note(p, "O backup leva ajustes, notas, tarefas, água e itens fixados da área de transferência. O log de diagnóstico fica de fora. Depois de importar, feche e abra o TzIsland.");
+        Btn(p, "Exportar dados…", () =>
+        {
+            string f = Backup.Export();
+            status.Text = f.Length > 0 ? $"Backup salvo ({Path.GetFileName(f)})." : "";
+        });
+        Btn(p, "Importar dados…", () =>
+        {
+            int n = Backup.Import();
+            status.Text = n > 0 ? $"{n} arquivo(s) importado(s) — reinicie o TzIsland para aplicar." : "";
+        });
+        return p;
+    }
+
+    static void OpenDataFolder()
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"\"{Settings.DataDir}\"") { UseShellExecute = true });
+        }
+        catch (Exception e) { Log.Write(e); }
+    }
 
     // ---------------- Gestos da ilha recolhida ----------------
     StackPanel Gestures()
@@ -371,7 +454,7 @@ public sealed class SettingsWindow : Window
             var mid = id;
             AddRow(p, ModuleRow(mid, orderNote));
         }
-        Btn(p, "Restaurar ordem padrão da barra", () => { S.NavOrder = Modules.All.Select(m => m.Id).ToList(); Settings.Apply(); Close(); ShowSingle(); });
+        Btn(p, "Restaurar ordem padrão da barra", () => { S.NavOrder = Modules.All.Select(m => m.Id).ToList(); Settings.Apply(SettingsChange.Modules); Close(); ShowSingle(); });
 
         Section(p, "Cartões da página Início");
         var homeNote = Note(p, "Estes são os cartões que aparecem no Início. Desligue os que não usa e use as setas para mudar a ordem: o primeiro da lista é o primeiro da grade, e \"Tocando agora\" ocupa sempre duas colunas.");
@@ -380,7 +463,7 @@ public sealed class SettingsWindow : Window
             var hid = id;
             AddRow(p, HomeRow(hid, homeNote));
         }
-        Btn(p, "Restaurar cartões padrão do Início", () => { S.HomeOrder = HomeWidgets.All.Select(w => w.Id).ToList(); S.HomeHidden.Clear(); Settings.Apply(); Close(); ShowSingle(); });
+        Btn(p, "Restaurar cartões padrão do Início e de todas as seções", () => { S.HomeOrder = HomeWidgets.All.Select(w => w.Id).ToList(); S.HomeHidden.Clear(); S.CardOrder.Clear(); Settings.Apply(SettingsChange.Modules); Close(); ShowSingle(); });
         return p;
     }
 
@@ -395,7 +478,7 @@ public sealed class SettingsWindow : Window
         var right = ArrowBtn("chevron-right", "Mover para a direita / para baixo", () => Moved(+1));
         left.Margin = new Thickness(0, 0, 4, 0);
         var sw = new SwitchToggle(); sw.SnapTo(HomeWidgets.IsOn(id));
-        sw.Toggled += on => { S.HomeHidden[id] = !on; Settings.Apply(); };
+        sw.Toggled += on => { S.HomeHidden[id] = !on; Settings.Apply(SettingsChange.Modules); };
         sw.Margin = new Thickness(12, 0, 0, 0);
         wrap.Children.Add(l.Vc());
         wrap.Children.Add(left.At(col: 1).Vc());
@@ -415,7 +498,7 @@ public sealed class SettingsWindow : Window
         var right = ArrowBtn("chevron-right", "Mover para baixo na barra", () => Moved(+1));
         left.Margin = new Thickness(0, 0, 4, 0);
         var sw = new SwitchToggle(); sw.SnapTo(Settings.Current.IsOn(id));
-        sw.Toggled += on => { Settings.Current.Modules[id] = on; Settings.Apply(); };
+        sw.Toggled += on => { Settings.Current.Modules[id] = on; Settings.Apply(SettingsChange.Modules); };
         sw.Margin = new Thickness(12, 0, 0, 0);
         wrap.Children.Add(l.Vc());
         wrap.Children.Add(left.At(col: 1).Vc());
@@ -479,7 +562,8 @@ public sealed class SettingsWindow : Window
         var p = Panel();
         Section(p, "Atalhos Globais do Sistema");
         Note(p, "Formatos aceitos: Ctrl+Alt+Space, Ctrl+Shift+D... Teclas modificadoras: Ctrl, Alt, Shift, Win.");
-        Text(p, "Expandir / recolher ilha", () => S.ToggleHotkey, v => S.ToggleHotkey = v);
+        Text(p, "Abrir a ilha / modo de edição dos cartões", () => S.ToggleHotkey, v => S.ToggleHotkey = v);
+        Note(p, "Com a ilha fechada, este atalho abre a ilha. Com ela aberta, liga e desliga o modo de edição: os cartões tremem e você pode arrastá-los entre as seções (segure sobre um ícone da barra lateral para trocar de seção com o cartão na mão). Também dá para entrar pelo botão direito na ilha > Editar cartões.");
         Text(p, "Ativar / pausar ditado por voz", () => S.DictationHotkey, v => S.DictationHotkey = v);
         return p;
     }

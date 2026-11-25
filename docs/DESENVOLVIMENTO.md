@@ -54,3 +54,27 @@ Codex (`~/.codex/config.toml`):
 ## Privacidade
 Tudo local em `%AppData%\TzIsland`. Internet apenas para clima (Open-Meteo) e links ICS que você configurar.
 Câmera só enquanto o Mirror está ligado; microfone só no ditado; nada é gravado ou enviado.
+
+## Verificação visual (`--shot`)
+
+Renderiza a ilha em PNG no estado pedido, sem animar e sem passar pelo mutex/bandeja/serviços —
+útil para conferir layout depois de mexer em UI, inclusive em escala (equivalente a DPI maior):
+
+```bash
+TzIsland.exe --shot shots --state collapsed
+TzIsland.exe --shot shots --state expanded --page media --scale 1.5
+TzIsland.exe --shot shots --state expanded --page home --style classic
+TzIsland.exe --shot shots --settings --tab 8 --scale 1.5     # janela de Configurações, aba 8 (Diagnóstico)
+```
+
+Saída: `shots\<estado>[-página]@<escala>x.png` (a pasta `shots/` está no `.gitignore`).
+Limitação: os serviços não sobem nesse modo, então widgets de sistema aparecem com valores padrão.
+
+## Testes
+
+```bash
+dotnet run --project Tests
+```
+
+Runner próprio (sem pacote externo): molas, perfis de intensidade, geometria do notch, cascata radial,
+backup (incluindo zip com caminho malicioso) e agrupamento do diagnóstico. Sai com código 0 quando tudo passa.

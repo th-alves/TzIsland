@@ -4,13 +4,11 @@ namespace TzIsland;
 /// Barrinhas de espectro de áudio (equalizador). Só consome o espectro e só redesenha enquanto Running = true;
 /// ao desligar, libera a captura de áudio.
 /// </summary>
-public sealed class EqBars : FrameworkElement
+public sealed class EqBars : FrameworkElement, IFrameSink
 {
     readonly int _n;
     readonly double[] _v;
     bool _running;
-    long _last;
-    double _clock;
     public Brush Fill { get; set; } = Brushes.White;
     public double BarWidth { get; set; } = 3;
     public double Gap { get; set; } = 2.5;
@@ -26,29 +24,36 @@ public sealed class EqBars : FrameworkElement
         {
             if (value == _running) return;
             _running = value;
-            if (value) { Svc.Spectrum.Acquire(); _last = Stopwatch.GetTimestamp(); CompositionTarget.Rendering += OnRender; }
-            else { CompositionTarget.Rendering -= OnRender; Svc.Spectrum.Release(); Array.Clear(_v, 0, _n); InvalidateVisual(); }
+            if (value) { Svc.Spectrum.Acquire(); MotionHost.Attach(this); }
+            else { MotionHost.Detach(this); Svc.Spectrum.Release(); Array.Clear(_v, 0, _n); InvalidateVisual(); }
         }
     }
 
     protected override Size MeasureOverride(Size availableSize) => new(_n * BarWidth + (_n - 1) * Gap, Height);
 
-    void OnRender(object? s, EventArgs e)
+    double _acc;
+
+    public bool Step(double dt)
     {
+        // 30 fps bastam para barrinhas de 3 px: metade dos quadros, metade do custo em repouso.
+        _acc += dt;
+        if (_acc < 1.0 / 30) return _running;
+        dt = _acc;
+        _acc = 0;
         long now = Stopwatch.GetTimestamp();
-        double dt = Math.Min(0.05, (now - _last) / (double)Stopwatch.Frequency);
-        _last = now; _clock += dt;
         var sp = Svc.Spectrum;
         bool recent = sp.Live && (now - sp.LastPacket) / (double)Stopwatch.Frequency < 0.12;
         for (int i = 0; i < _n; i++)
         {
             double t;
             if (sp.Live) t = recent ? sp.Levels[Math.Min(SpectrumService.Bands - 1, (int)Math.Round(i * (SpectrumService.Bands - 1) / (double)Math.Max(1, _n - 1)))] : 0;
-            else t = Playing ? 0.3 + 0.35 * (0.5 + 0.5 * Math.Sin(_clock * (3.1 + i * 0.9) + i * 1.7)) : 0;
+            // Fase no relógio global: trocar de superfície (pílula ↔ página) não reinicia o espectro.
+            else t = Playing ? 0.3 + 0.35 * (0.5 + 0.5 * Math.Sin(MotionHost.Now * (3.1 + i * 0.9) + i * 1.7)) : 0;
             double k = t > _v[i] ? 1 - Math.Pow(0.0005, dt) : 1 - Math.Pow(0.06, dt);     // ataque rápido, queda suave
             _v[i] += (t - _v[i]) * k;
         }
         InvalidateVisual();
+        return _running;
     }
 
     protected override void OnRender(DrawingContext dc)

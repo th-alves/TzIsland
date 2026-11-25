@@ -6,8 +6,14 @@ namespace TzIsland;
 /// Início: grade de widgets no estilo "Minimal" (preto, cartões finos, números grandes).
 /// Linha 1: Sistema + Relógio · Linha 2: Tocando agora + Bateria · Linha 3: Som, Clima e Agenda (role para ver).
 /// </summary>
-public sealed class HomePage : PageBase
+public sealed class HomePage : PageBase, ICardPage
 {
+    public string PageId => "home";
+    public CardBoard Board { get; }
+    public ScrollViewer? Scroller { get; private set; }
+    public void Relayout(bool animate = false, bool force = false) => Board.Layout(CardCatalog.For(PageId), animate, force);
+    public override IEnumerable<FrameworkElement> RevealTargets =>
+        Root.Children.OfType<StackPanel>().Cast<FrameworkElement>().Concat(Board.Cards.Select(c => (FrameworkElement)c.Holder));
     static readonly CultureInfo Pt = new("pt-BR");
     readonly SysStats _sys = new();
 
@@ -44,7 +50,6 @@ public sealed class HomePage : PageBase
 
     // Cartões do Início, na ordem escolhida pelo usuário (Configurações > Módulos > Cartões da página Início).
     readonly Border _clockCard, _npCard;
-    Grid? _homeGrid;
 
     public HomePage()
     {
@@ -59,16 +64,13 @@ public sealed class HomePage : PageBase
         head.Children.Add(hd.Vc());
         Root.Children.Add(head);
 
-        var grid = new Grid();
-        for (int i = 0; i < 3; i++) grid.ColumnDefinitions.Add(new ColumnDefinition { Width = K.GL("1*") });
-        _homeGrid = grid;
+        Board = new CardBoard(3, new[] { "1*", "1*", "1*" }, r => r == 0 ? 148 : 124);
 
         // ---- SISTEMA
         var sysRow = new UniformGrid3();
         sysRow.Add(RingWithCaption(_cpu, "CPU")); sysRow.Add(RingWithCaption(_ram, "RAM")); sysRow.Add(RingWithCaption(_disk, "Disco"));
         var sysCard = Card("monitor", "Sistema", sysRow.Host);
-        sysRow.Host.VerticalAlignment = VerticalAlignment.Center;
-        grid.Children.Add(sysCard);
+        sysRow.Host.VerticalAlignment = VerticalAlignment.Top;
 
         // ---- RELÓGIO (2 colunas)
         var clock = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
@@ -120,14 +122,17 @@ public sealed class HomePage : PageBase
         ag.Children.Add(Wrap(_next)); ag.Children.Add(Wrap(_nextSub).M(0, 3, 0, 0));
         var agCard = Card("calendar", "Agenda", ag);
 
-        _cards = new Dictionary<string, Border>
-        {
-            ["system"] = sysCard, ["clock"] = _clockCard, ["nowplaying"] = _npCard, ["battery"] = batCard,
-            ["sound"] = sndCard, ["weather"] = wxCard, ["agenda"] = agCard
-        };
-        LayoutHome();
+        // Os ids seguem os de HomeWidgets ("home." + id). A ordem e a visibilidade vêm de CardCatalog.For("home").
+        _ = new MovableCard("home.system", "Sistema", sysCard);
+        _ = new MovableCard("home.clock", "Relógio", _clockCard);
+        _ = new MovableCard("home.nowplaying", "Tocando agora", _npCard, 2);
+        _ = new MovableCard("home.battery", "Bateria", batCard);
+        _ = new MovableCard("home.sound", "Som e luz", sndCard);
+        _ = new MovableCard("home.weather", "Clima", wxCard);
+        _ = new MovableCard("home.agenda", "Agenda", agCard);
 
-        var scroll = K.Scroll(grid);
+        var scroll = K.Scroll(Board.Host);
+        Scroller = scroll;
         Root.Children.Add(scroll.At(row: 1));
         _t.Tick += (_, _) => Tick();
         Settings.Changed += OnSettingsChanged;
@@ -146,61 +151,23 @@ public sealed class HomePage : PageBase
         var g = K.Rows("auto", "*");
         g.Children.Add(FK.Header(Ico.Make(glyph, 12, K.Label, 1.9), title));
         g.Children.Add(body.At(row: 1));
-        ((FrameworkElement)body).Margin = new Thickness(0, 5, 0, 0);
+        // Conteúdo logo abaixo do título (antes ficava centralizado e se afastava quando a linha esticava).
+        var fe = (FrameworkElement)body;
+        fe.Margin = new Thickness(0, 8, 0, 0);
+        if (body is StackPanel) fe.VerticalAlignment = VerticalAlignment.Top;
         var c = FK.Card(g, 18);
         c.Padding = new Thickness(14, 10, 14, 9);
         return c;
     }
 
-    Dictionary<string, Border> _cards = new();
-
     void OnSettingsChanged()
     {
-        if (_homeGrid != null) Root.Dispatcher.InvokeAsync(LayoutHome, DispatcherPriority.Loaded);
-    }
-
-    /// <summary>
-    /// Monta a grade do Início na ordem escolhida pelo usuário (Configurações &gt; Módulos) e sem os cartões desligados.
-    /// O primeiro cartão da lista fica na célula da esquerda, em cima; "Tocando agora" (que precisa de largura)
-    /// sempre ocupa duas colunas, e os demais preenchem a grade na sequência.
-    /// </summary>
-    void LayoutHome()
-    {
-        var grid = _homeGrid;
-        if (grid == null) return;
-
-        var on = HomeWidgets.All.Select(w => w.Id).Where(HomeWidgets.IsOn).ToList();
-        var order = Settings.Current.HomeOrder ?? new List<string>();
-        var seq = order.Where(on.Contains).Distinct().ToList();
-        seq.AddRange(on.Where(id => !seq.Contains(id)));
-
-        grid.Children.Clear();
-        grid.RowDefinitions.Clear();
-        for (int i = 0; i < 3; i++) grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(i == 0 ? 148 : 124) });
-
-        var slots = new List<(int r, int c, int cs)>();
-        int row = 0, col = 0;
-        foreach (var id in seq)
-        {
-            int cs = id == "nowplaying" && col == 0 ? 2 : 1;
-            if (col + cs > 3) { row++; col = 0; cs = 1; }
-            slots.Add((row, col, cs));
-            col += cs;
-            if (col >= 3) { row++; col = 0; }
-        }
-
-        int k = 0;
-        foreach (var id in seq)
-        {
-            var (r, c, cs) = slots[k++];
-            var card = _cards[id];
-            card.Margin = new Thickness(c == 0 ? 0 : 4, r == 0 ? 0 : 4, c + cs >= 3 ? 0 : 4, 0);
-            grid.Children.Add(card.At(row: r, col: c, colSpan: cs));
-        }
+        Root.Dispatcher.InvokeAsync(() => Relayout(), DispatcherPriority.Loaded);
     }
 
     public override void Shown()
     {
+        Relayout();
         Svc.Media.Changed += OnMedia; Svc.Weather.Changed += OnWeather; Svc.Battery.Changed += OnBattery; Svc.Calendar.Changed += OnNext; Svc.Audio.VolumeChanged += SyncVol;
         OnMedia(); OnWeather(); OnBattery(); OnNext(); SyncVol(); _tick = 0; Tick();
         _t.Start();
@@ -288,6 +255,7 @@ public sealed class HomePage : PageBase
 public sealed class MediaPage : PageBase
 {
     readonly Image _cover = new() { Stretch = Stretch.UniformToFill };
+    public override FrameworkElement? Hero => _coverHost;   // recebe o portador que vem do LED/ícone recolhido
     readonly Grid _coverHost = new();
     readonly Border _coverIcon = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
     readonly Image _bg = new() { Stretch = Stretch.UniformToFill, Opacity = 0.16 };
@@ -402,10 +370,11 @@ public sealed class MediaPage : PageBase
         if (c == _accTarget) return;
         _accTarget = c;
         var lite = FK.Lerp(c, Colors.White, 0.28); var dark = FK.Lerp(c, Colors.Black, 0.12);
-        void To(System.Windows.Media.Animation.Animatable a, DependencyProperty dp, Color col)
+        void To(DependencyObject a, DependencyProperty dp, Color col)
         {
-            if (!Settings.Current.Animations) { a.BeginAnimation(dp, null); a.SetValue(dp, col); return; }
-            a.BeginAnimation(dp, new System.Windows.Media.Animation.ColorAnimation(col, TimeSpan.FromMilliseconds(650)) { EasingFunction = new System.Windows.Media.Animation.SineEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseInOut } });
+            // Cor com posse: trocar de faixa no meio da transição parte da cor atual, sem salto.
+            if (!Settings.Current.Animations) MotionEngine.SetColor(a, dp, col);
+            else MotionEngine.ToColor(a, dp, col, 650);
         }
         To(_acc, SolidColorBrush.ColorProperty, c);
         To(_g0, GradientStop.ColorProperty, lite); To(_g1, GradientStop.ColorProperty, dark);
@@ -424,9 +393,8 @@ public sealed class MediaPage : PageBase
         _ctl.LayoutTransform = on ? new ScaleTransform(0.78, 0.78) : Transform.Identity;
         _ctl.Margin = new Thickness(0, on ? 4 : 10, 0, 0);
         double h = on ? 82 : 0;
-        if (animate && Settings.Current.Animations)
-            _lyricsHost.BeginAnimation(FrameworkElement.HeightProperty, new System.Windows.Media.Animation.DoubleAnimation(h, TimeSpan.FromMilliseconds(380)) { EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut } });
-        else { _lyricsHost.BeginAnimation(FrameworkElement.HeightProperty, null); _lyricsHost.Height = h; }
+        if (animate && Settings.Current.Animations) MotionEngine.To(_lyricsHost, FrameworkElement.HeightProperty, h, Tz.Springs.Sheet);
+        else MotionEngine.Jump(_lyricsHost, FrameworkElement.HeightProperty, h);
         _lyricsHost.Margin = new Thickness(0, on ? 8 : 0, 0, 0);
         if (on) { RequestLyrics(); OnLyrics(); _lt.Start(); } else _lt.Stop();
     }
@@ -663,11 +631,16 @@ public sealed class LyricsPane : Grid
             int dist = Math.Abs(i - Math.Max(idx, 0));
             double op = i == idx ? 1 : dist == 1 ? 0.62 : 0.4, sz = i == idx ? 1 : 0.86;
             var (tb, sc) = _rows[i];
-            if (!animate || !Settings.Current.Animations) { tb.BeginAnimation(OpacityProperty, null); tb.Opacity = op; sc.BeginAnimation(ScaleTransform.ScaleXProperty, null); sc.BeginAnimation(ScaleTransform.ScaleYProperty, null); sc.ScaleX = sc.ScaleY = sz; return; }
-            var d = TimeSpan.FromMilliseconds(260);
-            tb.BeginAnimation(OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(op, d));
-            var a = new System.Windows.Media.Animation.DoubleAnimation(sz, d) { EasingFunction = new System.Windows.Media.Animation.CubicEase { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut } };
-            sc.BeginAnimation(ScaleTransform.ScaleXProperty, a); sc.BeginAnimation(ScaleTransform.ScaleYProperty, a.Clone());
+            if (!animate || !Settings.Current.Animations)
+            {
+                MotionEngine.Jump(tb, OpacityProperty, op);
+                MotionEngine.Jump(sc, ScaleTransform.ScaleXProperty, sz);
+                MotionEngine.Jump(sc, ScaleTransform.ScaleYProperty, sz);
+                return;
+            }
+            MotionEngine.To(tb, OpacityProperty, op, Tz.Springs.Fade);
+            MotionEngine.To(sc, ScaleTransform.ScaleXProperty, sz, Tz.Springs.Content);
+            MotionEngine.To(sc, ScaleTransform.ScaleYProperty, sz, Tz.Springs.Content);
         }
         for (int i = Math.Max(0, Math.Min(old, idx) - 3); i <= Math.Min(_rows.Count - 1, Math.Max(old, idx) + 3); i++) Style(i, true);
         _y.To(Target(idx), 0, 190, 24);

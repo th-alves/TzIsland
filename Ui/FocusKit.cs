@@ -24,17 +24,11 @@ public static class FK
             RenderTransformOrigin = new Point(0.5, 0.5),
             RenderTransform = new TransformGroup { Children = { sc, tt } }
         };
-        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-        card.MouseEnter += (_, _) =>
-        {
-            border.BeginAnimation(SolidColorBrush.ColorProperty, new System.Windows.Media.Animation.ColorAnimation(((SolidColorBrush)K.StrokeHi).Color, TimeSpan.FromMilliseconds(220)) { EasingFunction = ease });
-            tt.BeginAnimation(TranslateTransform.YProperty, new System.Windows.Media.Animation.DoubleAnimation(-2.5, TimeSpan.FromMilliseconds(260)) { EasingFunction = ease });
-        };
-        card.MouseLeave += (_, _) =>
-        {
-            border.BeginAnimation(SolidColorBrush.ColorProperty, new System.Windows.Media.Animation.ColorAnimation(((SolidColorBrush)K.Stroke).Color, TimeSpan.FromMilliseconds(320)) { EasingFunction = ease });
-            tt.BeginAnimation(TranslateTransform.YProperty, new System.Windows.Media.Animation.DoubleAnimation(0, TimeSpan.FromMilliseconds(420)) { EasingFunction = new ElasticEase { Oscillations = 1, Springiness = 6, EasingMode = EasingMode.EaseOut } });
-        };
+        // Hover com mola e posse: sair e voltar rápido não salta (antes era storyboard "To" sem "From").
+        Interaction.Lift(card, Tz.Dist.Lift, on => Interaction.Tint(
+            border,
+            ((SolidColorBrush)(on ? K.StrokeHi : K.Stroke)).Color,
+            on ? 220 : 320));
         return card;
     }
 
@@ -68,6 +62,7 @@ public static class FK
     {
         var b = new Button { Style = K.Fill, Height = h, Background = K.White, Tag = new CornerRadius(radius), Padding = new Thickness(14, 0, 14, 0) };
         SetPillContent(b, text, glyph);
+        Interaction.Press(b);
         b.Click += (_, _) => click();
         return b;
     }
@@ -86,6 +81,7 @@ public static class FK
     {
         var b = new Button { Style = K.Fill, Height = h, Background = K.Track, Tag = new CornerRadius(radius), Padding = new Thickness(14, 0, 14, 0) };
         SetPillContent(b, text, glyph, K.Fg);
+        Interaction.Press(b);
         b.Click += (_, _) => click();
         return b;
     }
@@ -93,6 +89,7 @@ public static class FK
     public static Button RoundButton(string glyph, string tip, Action click, double size, Brush bg, Brush fg, double glyphSize = 14)
     {
         var b = new Button { Style = K.Fill, Width = size, Height = size, Background = bg, Tag = new CornerRadius(size / 2), ToolTip = tip, Content = K.Glyph(glyph, glyphSize, fg) };
+        Interaction.Press(b);
         b.Click += (_, _) => click();
         return b;
     }
@@ -306,6 +303,7 @@ public sealed class ChipRow : Grid
     readonly Spring _x = new(0), _o = new(0);
     readonly MotionLoop _loop;
     readonly TranslateTransform _tt = new();
+    readonly ScaleTransform _hlScale = new(1, 1);
     readonly double _w, _gap;
     int _sel = -1;
     public event Action<int>? Picked;
@@ -325,7 +323,11 @@ public sealed class ChipRow : Grid
             });
         Children.Add(baseRow);
 
-        _hl.Width = chipWidth; _hl.RenderTransform = _tt; _hl.Opacity = 0;
+        // O destaque estica por escala (não por Width/Height): zero passo de layout por quadro.
+        _hl.Width = chipWidth;
+        _hl.RenderTransformOrigin = new Point(0, 0.5);
+        _hl.RenderTransform = new TransformGroup { Children = { _hlScale, _tt } };
+        _hl.Opacity = 0;
         Children.Add(_hl);
 
         var textRow = new StackPanel { Orientation = Orientation.Horizontal };
@@ -370,8 +372,8 @@ public sealed class ChipRow : Grid
     void Frame()
     {
         double stretch = Math.Min(Math.Abs(_x.Velocity) * 0.016, 18);       // esticar/achatar, como na barra
-        _hl.Width = _w + stretch;
-        _hl.Height = 28 - Math.Min(stretch * 0.2, 4);
+        _hlScale.ScaleX = (_w + stretch) / _w;
+        _hlScale.ScaleY = (28 - Math.Min(stretch * 0.2, 4)) / 28;
         _tt.X = _x.Value - stretch / 2;
         double o = Math.Clamp(_o.Value, 0, 1);
         _hl.Opacity = o;

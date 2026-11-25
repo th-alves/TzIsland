@@ -32,6 +32,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Projeto de testes é separado: não entra no app (senão o glob padrão compila os testes aqui dentro). -->
+    <Compile Remove="Tests\**" />
+    <None Remove="Tests\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- WPF + WinForms juntos geram conflitos de nomes: removemos os usings implícitos do WinForms -->
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />

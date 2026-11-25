@@ -61,18 +61,10 @@ public static class K
           <Border.RenderTransform><ScaleTransform x:Name="sc"/></Border.RenderTransform>
           <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
+        <!-- O "apertar" saiu do template: era storyboard com To sem From (saltava ao reentrar).
+             Agora é Interaction.Press, uma mola com posse que parte do valor atual. -->
         <ControlTemplate.Triggers>
           <Trigger Property="IsMouseOver" Value="True">{{hover}}</Trigger>
-          <Trigger Property="IsPressed" Value="True">
-            <Trigger.EnterActions><BeginStoryboard><Storyboard>
-              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleX" To="0.92" Duration="0:0:0.1"/>
-              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleY" To="0.92" Duration="0:0:0.1"/>
-            </Storyboard></BeginStoryboard></Trigger.EnterActions>
-            <Trigger.ExitActions><BeginStoryboard><Storyboard>
-              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleX" To="1" Duration="0:0:0.4"><DoubleAnimation.EasingFunction><ElasticEase Oscillations="1" Springiness="8" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
-              <DoubleAnimation Storyboard.TargetName="sc" Storyboard.TargetProperty="ScaleY" To="1" Duration="0:0:0.4"><DoubleAnimation.EasingFunction><ElasticEase Oscillations="1" Springiness="8" EasingMode="EaseOut"/></DoubleAnimation.EasingFunction></DoubleAnimation>
-            </Storyboard></BeginStoryboard></Trigger.ExitActions>
-          </Trigger>
         </ControlTemplate.Triggers>
       </ControlTemplate>
     </Setter.Value>
@@ -185,6 +177,7 @@ public static class K
             Style = GhostStyle, Width = w, Height = h, ToolTip = tip, Tag = new CornerRadius(h / 2),
             Content = glyph.Length > 1 ? (object)T(glyph, size - 2, fg, true) : Glyph(glyph, size, fg)
         };
+        Interaction.Press(b);
         b.Click += (_, _) => click();
         return b;
     }
@@ -196,6 +189,7 @@ public static class K
             Style = accent ? FillStyle : GhostStyle, Padding = new Thickness(13, 6, 13, 6), Tag = new CornerRadius(10),
             Background = accent ? White : Card, Content = T(text, size, accent ? Ink : Fg, true)
         };
+        Interaction.Press(b);
         b.Click += (_, _) => click();
         return b;
     }
@@ -264,29 +258,7 @@ public static class K
         return el;
     }
 
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<UIElement, object> FadeTokens = new();
-
-    public static void FadeIn(UIElement el, int delayMs = 0, double fromY = 10)
-    {
-        el.BeginAnimation(UIElement.OpacityProperty, null);
-        el.Opacity = 0;
-        var tt = new TranslateTransform(0, fromY);
-        el.RenderTransform = tt;
-        var ease = new QuarticEase { EasingMode = EasingMode.EaseOut };
-        var begin = TimeSpan.FromMilliseconds(delayMs);
-        var tok = new object();
-        FadeTokens.Remove(el); FadeTokens.Add(el, tok);
-        var yAnim = new DoubleAnimation(fromY, 0, TimeSpan.FromMilliseconds(450)) { BeginTime = begin, EasingFunction = ease };
-        yAnim.Completed += (_, _) =>
-        {
-            // só libera se esta ainda for a animação mais recente deste elemento
-            if (!FadeTokens.TryGetValue(el, out var cur) || !ReferenceEquals(cur, tok)) return;
-            el.BeginAnimation(UIElement.OpacityProperty, null); el.Opacity = 1;
-            tt.BeginAnimation(TranslateTransform.YProperty, null); tt.Y = 0;
-        };
-        el.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(350)) { BeginTime = begin, EasingFunction = ease });
-        tt.BeginAnimation(TranslateTransform.YProperty, yAnim);
-    }
+    public static void FadeIn(UIElement el, int delayMs = 0, double fromY = 10) => Motion.FadeIn(el, delayMs, fromY);
 
     public static string Fmt(TimeSpan t) => t.TotalHours >= 1 ? $"{(int)t.TotalHours}:{t.Minutes:00}:{t.Seconds:00}" : $"{t.Minutes:00}:{t.Seconds:00}";
     public static string Fmt(double seconds) => Fmt(TimeSpan.FromSeconds(seconds));
@@ -301,36 +273,50 @@ public static class SmoothScroll
     const double PixelsPerDelta = 1.9;   // 120 de delta ≈ 228 px por "clique"
     const double Smoothing = 15;         // maior = mais responsivo
 
+    /// <summary>Suavização por quadro registrada no relógio único do app (sem assinatura própria).</summary>
+    sealed class Sink : IFrameSink
+    {
+        readonly ScrollViewer _sv;
+        double _target, _pos;
+
+        public Sink(ScrollViewer sv) { _sv = sv; }
+
+        public void Home() { _pos = _sv.VerticalOffset; _target = _pos; }
+
+        public void Add(double delta)
+        {
+            _target = Math.Clamp(_target - delta, 0, _sv.ScrollableHeight);
+            MotionHost.Attach(this);
+        }
+
+        public bool Step(double dt)
+        {
+            _target = Math.Clamp(_target, 0, _sv.ScrollableHeight);
+            _pos += (_target - _pos) * (1 - Math.Exp(-dt * Smoothing));
+            if (Math.Abs(_target - _pos) < 0.35)
+            {
+                _pos = _target;
+                _sv.ScrollToVerticalOffset(_pos);
+                return false;
+            }
+            _sv.ScrollToVerticalOffset(_pos);
+            return true;
+        }
+    }
+
     public static ScrollViewer Create(UIElement content)
     {
         var sv = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = content };
-        double target = 0, pos = 0;
-        bool running = false;
-        long last = 0;
-        EventHandler? handler = null;
-
-        void Stop() { if (running && handler != null) { CompositionTarget.Rendering -= handler; running = false; } }
-
-        handler = (_, _) =>
-        {
-            long now = Stopwatch.GetTimestamp();
-            double dt = Math.Min(0.05, (now - last) / (double)Stopwatch.Frequency);
-            last = now;
-            target = Math.Clamp(target, 0, sv.ScrollableHeight);
-            pos += (target - pos) * (1 - Math.Exp(-dt * Smoothing));
-            if (Math.Abs(target - pos) < 0.35) { pos = target; Stop(); }
-            sv.ScrollToVerticalOffset(pos);
-        };
+        var sink = new Sink(sv);
 
         sv.PreviewMouseWheel += (_, e) =>
         {
             if (sv.ScrollableHeight <= 0.5) return;       // nada para rolar: deixa o evento seguir
             e.Handled = true;
-            if (!running) { pos = sv.VerticalOffset; target = pos; }
-            target = Math.Clamp(target - e.Delta * PixelsPerDelta, 0, sv.ScrollableHeight);
-            if (!running) { running = true; last = Stopwatch.GetTimestamp(); CompositionTarget.Rendering += handler; }
+            sink.Home();
+            sink.Add(e.Delta * PixelsPerDelta);
         };
-        sv.Unloaded += (_, _) => Stop();
+        sv.Unloaded += (_, _) => MotionHost.Detach(sink);
         return sv;
     }
 }
@@ -363,7 +349,11 @@ public sealed class PillSlider : FrameworkElement
         dc.DrawRoundedRectangle(K.Track, null, new Rect(0, y, w, h), 3, 3);
         double fw = Math.Max(h, _v * w);
         dc.DrawRoundedRectangle(Fill, null, new Rect(0, y, fw, h), 3, 3);
-        if (_showThumb) dc.DrawEllipse(ThumbBrush, null, new Point(Math.Clamp(_v * w, 4.5, w - 4.5), ActualHeight / 2), 4.5, 4.5);
+                    if (_showThumb)
+            {
+                double lo = Math.Min(4.5, w / 2), hi = Math.Max(lo, w - 4.5);   // controle estreito: sem máximo negativo
+                dc.DrawEllipse(ThumbBrush, null, new Point(Math.Clamp(_v * w, lo, hi), ActualHeight / 2), 4.5, 4.5);
+            }
     }
 
     void Set(Point p)
@@ -443,6 +433,8 @@ public abstract class PageBase : IPage
     public virtual void Shown() { }
     public virtual void Hidden() { }
     public virtual bool KeepOpen => false;
+    /// <summary>Elemento que recebe o portador do matched geometry (o LED/tempo recolhido viaja até ele).</summary>
+    public virtual FrameworkElement? Hero => null;
     /// <summary>Elementos que entram em cascata quando a página aparece (padrão: cartões e blocos de primeiro nível).</summary>
     public virtual IEnumerable<FrameworkElement> RevealTargets => Motion.Targets(Root);
 }

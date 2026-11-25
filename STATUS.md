@@ -140,3 +140,36 @@ Todos os itens abaixo precisam ser testados por você no primeiro `dotnet run`; 
 ## Etapa 18 — v2.7.0
 - Sistema: bateria dos dispositivos Bluetooth com anel de LEDs animado, ícone por tipo, layout compacto quando o card é baixo; clique abre o Bluetooth do Windows.
 - Correção: destaque da barra lateral ia para o Início ao abrir o Inbox.
+
+## Etapa 19 — Motion centralizado e continuidade (v2.9.0)
+- ✅ **Relógio único:** `Core/Motion/MotionHost.cs` — uma assinatura de `CompositionTarget.Rendering` para o app inteiro e um `dt` por quadro. `MotionLoop`, rolagem suave, espectro, anel de bateria e página Foco passaram a ser consumidores desse relógio (antes eram ~25 assinaturas independentes).
+- ✅ **Posse de propriedade:** `Core/Motion/MotionEngine.cs` — cada (objeto, propriedade) tem no máximo uma track. Retarget preserva velocidade e parte do valor visual atual; ao assentar, o valor vira local e a track sai do registro (fim do `FillBehavior.HoldEnd` preso). `Interaction` (hover/press/tint), cores, opacidades e escalas passam por aí.
+- ✅ **Sem saltos na interrupção:** reabrir no meio do fechamento não salta mais (`_expO <= 0,001` em vez de 0,05); troca de página não força o fim da anterior; mudar configuração não assenta mais as molas.
+- ✅ **Páginas em tracks:** saída e entrada independentes; a página só sai da árvore quando a opacidade assenta (fim do hack `_pg`/`_incoming`/`FinishTransition` forçado).
+- ✅ **Menos layout por quadro:** lente da barra e destaque dos chips esticam por **escala** (não por Width/Height); geometria do modo Flutuante é reaproveitada (`RectangleGeometry` mutável); a largura da pílula só muda quando muda de verdade.
+- ✅ **Sem blur de software por quadro:** o antigo `Soft()` foi removido; a borda (`_outline`) engrossa conforme a velocidade da forma — identidade a custo zero, repouso idêntico ao anterior.
+- ✅ **Custo em repouso:** a página Foco desliga o laço quando nada se move (relógio por evento + texto a 16 Hz); respiração do anel de bateria e do LED viraram tracks pausáveis; `_clockT` só roda recolhida; a checagem de tela cheia não enumera processos quando o modo é "normal".
+- ✅ **Configurações granulares:** `SettingsChange` (Look/Layout/Motion/Modules/Behavior). Arrastar um slider não reconstrói a barra de seções nem mata animações.
+- ✅ **Intensidade do movimento:** Configurações → Efeitos e Fluidez → Discreto / Natural / Expressivo, mapeado em amplitude, defasagem e firmeza sobre os mesmos cinco presets (Natural = comportamento anterior).
+- ✅ **Medidor de quadro:** `Ctrl+Shift+M` mostra p50/p95, quadros longos e consumidores ativos.
+- ✅ **Tokens:** `Core/Motion/Tz.cs` concentra molas (Form/Edge/Content/Fade/Lift/Lens/Sheet/Exit/Settle), defasagens e distâncias.
+- 🟡 **Ainda não implementado:** morph de conteúdo com matched geometry (LED → bloco, tempo recolhido → anel, espectro contínuo) e sombra externa — dependem de redesenhar as três superfícies e de decidir região/hit-test da janela.
+- ⚠️ Validado por `dotnet build` (0 erros). **Não executado visualmente** — confira as animações e me diga o que ajustar.
+
+## Etapa 20 — Matched geometry, sombra externa e cor por mola (v2.9.1)
+- ✅ **Matched geometry (Etapa 4):** `Core/Motion/Matched.cs` mede origem e destino no layout real e leva um **portador** por transformação (posição + escala), revelando o herói na chegada. O ícone/LED da pílula recolhida viaja até a **capa** (Mídia) ou o **anel** (Foco) — `PageBase.Hero`. Medida que falha = nenhum efeito: nunca quebra layout, no pior caso não há continuidade.
+- ✅ **Espectro contínuo:** a fase das barrinhas vem do relógio global (`MotionHost.Now`); trocar de superfície (pílula ↔ página) não reinicia mais a animação.
+- ✅ **Sombra externa:** halo real (`DropShadowEffect`) atrás da silhueta; a região da janela cresce 24 px e o halo **não** rouba cliques — fora da ilha o `WM_NCHITTEST` devolve `HTTRANSPARENT`. Só no estilo Flutuante (no Clássico os ombros côncavos deixariam preto nos "ears"). Interruptor em Configurações → Efeitos e Fluidez → "Sombra externa".
+- ✅ **Cor por mola:** `MotionEngine.ToColor(..., SpringSpec)` — o tom assenta em vez de parar numa duração; `Interaction.Tint` passou a usar.
+- 🐞 **Correção de runtime:** `Math.Clamp(x, 0, negativo)` lançava `ArgumentException` quando uma mola ultrapassava zero no fechamento rápido; a exceção era engolida pelo handler global e **abortava o resto do quadro**. Geometria agora nunca recebe valor negativo, a região da janela ignora medidas inválidas e dois clamps com máximo calculado (notch, thumb de slider estreito) foram blindados.
+- ✅ Verificado em execução: app inicia e permanece vivo; avisos `--notify` sem exceção no log; hit-test real da janela → corpo `HTCLIENT` (1), halo `HTTRANSPARENT` (-1).
+- ⚠️ Aparência (portador, halo, cascatas) **não verificada visualmente** — precisa ser olhada rodando.
+
+## Etapa 21 — Observabilidade, energia, backup, testes e verificação visual (v2.10.0)
+- ✅ **Diagnóstico embutido:** `Core/Diagnostics.cs` guarda as exceções agrupadas por assinatura (as do `Log.Write` agora contam) e monta um relatório copiável. Configurações → **Diagnóstico**: contadores (sessão, erros, quadros longos), assinaturas mais frequentes, "Copiar relatório", "Abrir pasta de dados", "Limpar registro". Antes um erro engolido pelo handler global degradava a ilha em silêncio (foi assim que um `Math.Clamp` abortava o quadro).
+- ✅ **Orçamento de energia:** `MotionHost.Paused` agora **para** o laço de render (não só impede novos quadros); a ilha pausa em `PowerModeChanged` (suspender) e `SessionSwitch` (bloquear/desconectar), ao ficar invisível e ao entrar em tela cheia. Espectro roda a **30 fps** (metade dos quadros) e só com a pílula visível; relógio e checagem de tela cheia param junto.
+- ✅ **Backup dos dados:** `Core/Backup.cs` exporta/importa um `.zip` de `%AppData%\TzIsland` (ajustes, notas, tarefas, água, fixados) sem o log, e **recusa** entradas com subpasta ou `..` (zip é entrada não confiável). Botões em Configurações → Diagnóstico → Dados.
+- ✅ **Testes do núcleo:** `Tests/` (runner próprio, sem dependências externas): molas (assentamento, overshoot, atraso, cancelamento), perfis de intensidade, geometria do notch em tamanhos degenerados, cascata radial, backup (round-trip e zip malicioso) e agrupamento do diagnóstico. **26/26 passam** com `dotnet run --project Tests`.
+- ✅ **Verificação visual por PNG:** `TzIsland.exe --shot pasta\ [--state collapsed|banner|expanded] [--page media] [--scale 2] [--style classic|floating]` renderiza a ilha sem animar e sem passar pelo mutex/bandeja/serviços. Primeira validação real feita com ele: silhueta do notch (ombros côncavos), halo da sombra no Flutuante, borda fina, lente da barra e as três páginas conferidas.
+- ✅ **Esc fecha a ilha expandida** (antes só o mouse).
+- ⏳ Fora desta etapa: paleta de comandos (Ctrl+K), MSIX, assinatura de código, OSD nativo de volume/brilho, i18n, API local para scripts e acessibilidade completa por teclado.

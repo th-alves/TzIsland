@@ -7,7 +7,7 @@ namespace TzIsland;
 /// (verde → âmbar → vermelho), brilho suave nos acesos e varredura com mola quando o valor muda.
 /// Sem % conhecida, o anel fica apagado. Abaixo de 15% os LEDs acesos "respiram".
 /// </summary>
-public sealed class BatteryRing : FrameworkElement
+public sealed class BatteryRing : FrameworkElement, IFrameSink
 {
     const int Segs = 24;
     const double Gap = 4.2;          // graus de folga entre segmentos
@@ -16,7 +16,8 @@ public sealed class BatteryRing : FrameworkElement
     readonly MotionLoop _loop;
     double _target = -1;             // -1 = desconhecido
     double _pulse = 1;
-    DispatcherTimer? _breath;
+    bool _breathing;
+    double _breathT;
     readonly UIElement _icon;
 
     public double Thickness { get; set; } = 3.6;
@@ -54,14 +55,25 @@ public sealed class BatteryRing : FrameworkElement
 
     void StartBreath()
     {
-        if (_breath != null) return;
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        _breath = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
-        _breath.Tick += (_, _) => { _pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.Cos(sw.Elapsed.TotalSeconds * 2.6)); InvalidateVisual(); };
-        _breath.Start();
+        if (_breathing) return;
+        _breathing = true;
+        MotionHost.Attach(this);      // respiração no relógio único (alinhada ao quadro, não a um timer de 33 ms)
     }
 
-    void StopBreath() { _breath?.Stop(); _breath = null; _pulse = 1; }
+    void StopBreath()
+    {
+        if (_breathing) { _breathing = false; MotionHost.Detach(this); }
+        _pulse = 1;
+    }
+
+    public bool Step(double dt)
+    {
+        if (!_breathing) return false;
+        _breathT += dt;
+        _pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.Cos(_breathT * 2.6));
+        InvalidateVisual();
+        return true;
+    }
 
     public static Color LevelColor(double t)
     {
@@ -189,9 +201,8 @@ public sealed class DeviceTile : Border
         void Hover(bool inn)
         {
             Background = inn ? K.Hex("#0FFFFFFF") : Brushes.Transparent;
-            var e = new CubicEase { EasingMode = EasingMode.EaseOut };
-            sc.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(inn ? 1.06 : 1, TimeSpan.FromMilliseconds(220)) { EasingFunction = e });
-            sc.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(inn ? 1.06 : 1, TimeSpan.FromMilliseconds(220)) { EasingFunction = e });
+            MotionEngine.To(sc, ScaleTransform.ScaleXProperty, inn ? 1.06 : 1, Tz.Springs.Lift);
+            MotionEngine.To(sc, ScaleTransform.ScaleYProperty, inn ? 1.06 : 1, Tz.Springs.Lift);
         }
         MouseEnter += (_, _) => Hover(true); MouseLeave += (_, _) => Hover(false);
 

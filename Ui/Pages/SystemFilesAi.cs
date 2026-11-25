@@ -6,8 +6,14 @@ namespace TzIsland;
 /// Sistema: no mesmo estilo da Início. Uma caixa com o que se liga/desliga (Bateria, Wi-Fi, Bluetooth, Microfone),
 /// outra com os controles deslizantes (Volume, Brilho) e uma terceira, empilhada, com os dispositivos conectados.
 /// </summary>
-public sealed class SystemPage : PageBase
+public sealed class SystemPage : PageBase, ICardPage
 {
+    public string PageId => "system";
+    public CardBoard Board { get; }
+    public ScrollViewer? Scroller { get; private set; }
+    public void Relayout(bool animate = false, bool force = false) => Board.Layout(CardCatalog.For(PageId), animate, force);
+    public override IEnumerable<FrameworkElement> RevealTargets =>
+        Root.Children.OfType<StackPanel>().Cast<FrameworkElement>().Concat(Board.Cards.Select(c => (FrameworkElement)c.Holder));
     // Bateria
     readonly BatteryGlyph _batGlyph = new() { Width = 30, Height = 16 };
     readonly TextBlock _batPct = K.Num("", 15), _batSub = K.T("", 10.5, K.Muted);
@@ -60,7 +66,7 @@ public sealed class SystemPage : PageBase
         head.Children.Add(K.T("Sistema", 13, K.Fg, true).M(8, 0, 0, 0).Vc());
         Root.Children.Add(head);
 
-        var body = K.Cols("1.08*", "1*");
+        Board = new CardBoard(2, new[] { "1.08*", "1*" }, null, true);
 
         // ---------- Caixa 1: itens ativáveis
         var rows = new StackPanel { Margin = new Thickness(0, 9, 0, 0) };
@@ -77,21 +83,19 @@ public sealed class SystemPage : PageBase
         var g1 = K.Rows("auto", "*");
         g1.Children.Add(FK.Header(Ico.Make("wifi", 12, K.Label, 1.9), "Conexões"));
         g1.Children.Add(rows.At(row: 1));
-        var c1 = FK.Card(g1, 20); c1.Margin = new Thickness(0, 0, 5, 0);
-        body.Children.Add(c1);
+        var c1 = FK.Card(g1, 20);
+        _ = new MovableCard("system.connections", "Conexões", c1, 1, 2);
 
         // ---------- Caixa 2: controles deslizantes
         var ctl = new StackPanel { Margin = new Thickness(0, 9, 0, 0) };
-        _mute = K.IconBtn("\uE767", "Silenciar", () => { Svc.Audio.Muted = !Svc.Audio.Muted; SyncVol(); }, 13, 30, 28, K.Fg);
-        var vrow = K.Cols("30", "*", "30");
-        vrow.Children.Add(_mute); vrow.Children.Add(_vol.At(col: 1).M(6, 0, 6, 0));
-        _volNum.HorizontalAlignment = HorizontalAlignment.Right; vrow.Children.Add(_volNum.At(col: 2).Vc());
-        ctl.Children.Add(vrow);
+        _mute = K.IconBtn("\uE767", "Silenciar", () => { Svc.Audio.Muted = !Svc.Audio.Muted; SyncVol(); }, 13, 26, 24, K.Fg);
+        ctl.Children.Add(CtlRow(_mute, "Volume", _vol, _volNum, 0));
         ctl.Children.Add(_bri);
         var g2 = K.Rows("auto", "*");
         g2.Children.Add(FK.Header(Ico.Make("sun", 12, K.Label, 1.9), "Controles"));
         g2.Children.Add(ctl.At(row: 1));
         var c2 = FK.Card(g2, 20);
+        _ = new MovableCard("system.controls", "Controles", c2);
 
         // ---------- Caixa 3: dispositivos conectados (itens individuais empilhados)
         var g3 = K.Rows("auto", "*");
@@ -116,13 +120,14 @@ public sealed class SystemPage : PageBase
         _devScroll = sc;
         g3.Children.Add(sc.At(row: 1));
         g3.SizeChanged += (_, _) => FitTiles();
-        var c3 = FK.Card(g3, 20); c3.Margin = new Thickness(0, 5, 0, 0);
+        var c3 = FK.Card(g3, 20);
+        _ = new MovableCard("system.devices", "Dispositivos", c3);
 
-        var right = K.Rows("auto", "*");
-        right.Margin = new Thickness(5, 0, 0, 0);
-        right.Children.Add(c2); right.Children.Add(c3.At(row: 1));
-        body.Children.Add(right.At(col: 1));
-        Root.Children.Add(body.At(row: 1));
+        // A grade fica num ScrollViewer: se o usuário trouxer mais cartões, a página rola; se sobrar espaço, a última linha o preenche.
+        var sv = K.Scroll(Board.Host);
+        Scroller = sv;
+        sv.SizeChanged += (_, _) => Board.Host.MinHeight = sv.ActualHeight;
+        Root.Children.Add(sv.At(row: 1));
 
         _vol.Changed += v => { Svc.Audio.Volume = (float)v; if (Svc.Audio.Muted && v > 0) Svc.Audio.Muted = false; _volNum.Text = Math.Round(v * 100).ToString(CultureInfo.InvariantCulture); };
         _wifiSw.Toggled += async on => { _wifiSw.IsHitTestVisible = false; await Svc.Network.SetWifiAsync(on); await Task.Delay(700); await Svc.Network.RefreshAsync(); SyncWifi(); _wifiSw.IsHitTestVisible = true; };
@@ -133,6 +138,7 @@ public sealed class SystemPage : PageBase
 
     public override async void Shown()
     {
+        Relayout();
         Svc.Battery.Changed += SyncBat; Svc.Audio.VolumeChanged += SyncVol; Svc.Audio.MicChanged += SyncMic;
         SyncBat(); SyncVol(); SyncMic();
         _t.Start();
@@ -257,17 +263,38 @@ public sealed class SystemPage : PageBase
         }
         foreach (var d in devs)
         {
-            if (devs.Count > 1) _bri.Children.Add(K.T(d.Name, 10.5, K.Muted).M(0, 8, 0, 0));
-            _bri.Children.Add(Slider("sun", "Brilho", d.Min, d.Max, d.Cur, v => Svc.Brightness.SetBrightness(d, v), devs.Count > 1 ? 3 : 8));
-            if (d.HasContrast) _bri.Children.Add(Slider("contrast", "Contraste", d.CMin, d.CMax, d.CCur, v => Svc.Brightness.SetContrast(d, v), 3));
+            // linha fina separando cada tela; com mais de uma, o nome vem em caixa alta discreta
+            _bri.Children.Add(new Border { Height = 1, Background = K.Stroke, Margin = new Thickness(0, 11, 0, 0) });
+            if (devs.Count > 1)
+            {
+                var n = K.Cap(d.Name, 8.5, K.Muted);
+                n.Margin = new Thickness(2, 9, 0, 0); n.ToolTip = d.Name;
+                _bri.Children.Add(n);
+            }
+            _bri.Children.Add(Slider("sun", "Brilho", d.Min, d.Max, d.Cur, v => Svc.Brightness.SetBrightness(d, v), devs.Count > 1 ? 8 : 11));
+            if (d.HasContrast) _bri.Children.Add(Slider("contrast", "Contraste", d.CMin, d.CMax, d.CCur, v => Svc.Brightness.SetContrast(d, v), 9));
         }
     }
 
-    static UIElement Slider(string icon, string tip, uint min, uint max, uint cur, Action<uint> set, double top)
+    /// <summary>Linha padrão dos controles: ícone, rótulo, barra e valor, sempre nas mesmas colunas.</summary>
+    static Grid CtlRow(UIElement icon, string label, PillSlider s, TextBlock num, double top)
     {
-        var s = new PillSlider { Value = max > min ? (cur - min) / (double)(max - min) : 0, ToolTip = tip, Fill = K.White, Height = 14 };
-        var num = K.Num(Math.Round(s.Value * 100).ToString(CultureInfo.InvariantCulture), 11.5, K.Label);
+        var g = K.Cols("26", "62", "*", "32");
+        g.Margin = new Thickness(0, top, 0, 0);
+        ((FrameworkElement)icon).VerticalAlignment = VerticalAlignment.Center;
+        ((FrameworkElement)icon).HorizontalAlignment = HorizontalAlignment.Left;
+        g.Children.Add(icon);
+        g.Children.Add(K.T(label, 11.5, K.Dim).At(col: 1).Vc());
+        g.Children.Add(s.At(col: 2).M(2, 0, 10, 0).Vc());
         num.HorizontalAlignment = HorizontalAlignment.Right;
+        g.Children.Add(num.At(col: 3).Vc());
+        return g;
+    }
+
+    static UIElement Slider(string icon, string label, uint min, uint max, uint cur, Action<uint> set, double top)
+    {
+        var s = new PillSlider { Value = max > min ? (cur - min) / (double)(max - min) : 0, ToolTip = label, Fill = K.White, Height = 14 };
+        var num = K.Num(Math.Round(s.Value * 100).ToString(CultureInfo.InvariantCulture), 11.5, K.Label);
         DateTime last = DateTime.MinValue;
         s.Changed += v =>
         {
@@ -277,15 +304,7 @@ public sealed class SystemPage : PageBase
             uint val = (uint)(min + v * (max - min));
             Task.Run(() => set(val));
         };
-        var g = K.Cols("30", "*", "30");
-        g.Children.Add(Ico.Make(icon, 16, K.Label, 1.7).Vc().M(7, 0, 0, 0));
-        g.Children.Add(s.At(col: 1).M(6, 0, 6, 0));
-        g.Children.Add(num.At(col: 2).Vc());
-        // Rótulo de texto explícito: antes só havia o ícone, e o slider de Contraste parecia um segundo Brilho.
-        var wrap = new StackPanel { Margin = new Thickness(0, top, 0, 0) };
-        wrap.Children.Add(K.T(tip, 10, K.Muted).M(7, 0, 0, 1));
-        wrap.Children.Add(g);
-        return wrap;
+        return CtlRow(Ico.Make(icon, 15, K.Label, 1.7), label, s, num, top);
     }
 }
 
@@ -640,13 +659,13 @@ public sealed class DictationPage : PageBase
         _status.Text = d.Listening ? $"Ouvindo… ({Settings.Current.DictationLanguage})" : $"Pronto · Atalho global {Settings.Current.DictationHotkey}";
         _mic.Content = K.Glyph(d.Listening ? "\uE71A" : "\uE720", 20, d.Listening ? K.Red : K.Fg);
         _err.Text = d.Error ?? "";
+        // Indicador "gravando" no relógio único (pausável) em vez de storyboard infinito.
         if (d.Listening)
-            _rec.BeginAnimation(UIElement.OpacityProperty, new System.Windows.Media.Animation.DoubleAnimation(0.15, 1, TimeSpan.FromMilliseconds(700)) { AutoReverse = true, RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever });
-        else
         {
-            _rec.BeginAnimation(UIElement.OpacityProperty, null);
-            _rec.Opacity = 0;
+            if (!MotionEngine.IsAnimating(_rec, UIElement.OpacityProperty))
+                MotionEngine.Wave(_rec, UIElement.OpacityProperty, t => 0.575 + 0.425 * Math.Sin(Math.PI * t / 0.7));
         }
+        else MotionEngine.Jump(_rec, UIElement.OpacityProperty, 0);
         IslandWindow.Instance?.RefreshMini();
     }
 }

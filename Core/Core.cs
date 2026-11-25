@@ -8,6 +8,9 @@ public enum IslandAnchor { TopCenter, TopLeft, TopRight, Custom }
 public enum FullscreenMode { Hide, NoExpand, Keep }
 public enum CollapseMode { Instant, Fast, Smooth }
 
+/// <summary>Intensidade global do movimento (Etapa 7): os estilos viram presets sobre a mesma física.</summary>
+public enum MotionIntensity { Discreet, Natural, Expressive }
+
 public class ShortcutItem
 {
     public string Name { get; set; } = "";
@@ -35,6 +38,10 @@ public class AppSettings
     public double BlurAmount { get; set; } = 36;    // desfoque do vidro (0 desliga)
     public bool Animations { get; set; } = true;
     public IslandAnim IslandAnim { get; set; } = IslandAnim.Fluid;
+    /// <summary>Halo de sombra em volta da ilha (a região da janela cresce e o halo é click-through).</summary>
+    public bool WindowShadow { get; set; } = true;
+    /// <summary>Discreto / Natural / Expressivo — escala amplitude, defasagem e firmeza das molas.</summary>
+    public MotionIntensity MotionIntensity { get; set; } = MotionIntensity.Natural;
     public bool MediaBlurBackground { get; set; } = true;
 
     // Posição
@@ -93,6 +100,8 @@ public class AppSettings
     public List<string> HomeOrder { get; set; } = new();
     /// <summary>Cartões do Início que o usuário escondeu (id =&gt; true). Ausente = aparece.</summary>
     public Dictionary<string, bool> HomeHidden { get; set; } = new();
+    /// <summary>Posição dos cartões arrastáveis: seção ("home", "system") =&gt; ids em ordem ("home.clock"). Cartão fora de toda lista fica na seção de origem.</summary>
+    public Dictionary<string, List<string>> CardOrder { get; set; } = new();
 
     // Ambientação
     public double AmbienceVolume { get; set; } = 0.7;
@@ -146,10 +155,28 @@ public class AppSettings
     public bool IsOn(string module) => !Modules.TryGetValue(module, out var v) || v;
 }
 
+/// <summary>
+/// O que mudou nas configurações. Serve para não reconstruir a interface inteira (nem matar animações)
+/// quando o usuário só arrasta um slider.
+/// </summary>
+[Flags]
+public enum SettingsChange
+{
+    None = 0,
+    Look = 1,        // vidro, opacidade, desfoque
+    Layout = 2,      // tamanhos, posição, monitor, estilo da ilha
+    Motion = 4,      // animações, estilo de animação, velocidade de recolher
+    Modules = 8,     // módulos, ordem da barra, cartões do Início
+    Behavior = 16,   // abrir ao clicar/passar, atalhos, tela cheia, bandeja
+    All = ~0
+}
+
 public static class Settings
 {
     public static AppSettings Current { get; private set; } = new();
     public static event Action? Changed;
+    /// <summary>Versão tipada de <see cref="Changed"/>: quem precisa de precisão assina esta.</summary>
+    public static event Action<SettingsChange>? ChangedKind;
     /// <summary>Pede à ilha para abrir e fechar sozinha, para o usuário ver o estilo de animação escolhido.</summary>
     public static event Action? PreviewAnimation;
     public static void RequestPreview() => PreviewAnimation?.Invoke();
@@ -189,6 +216,7 @@ public static class Settings
         var home = Current.HomeOrder.Where(id => HomeWidgets.All.Any(w => w.Id == id)).Distinct().ToList();
         home.AddRange(HomeWidgets.All.Select(w => w.Id).Where(id => !home.Contains(id)));
         Current.HomeOrder = home;
+        Current.CardOrder ??= new();
         if (string.IsNullOrWhiteSpace(Current.DownloadsPath))
             Current.DownloadsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
         if (string.IsNullOrWhiteSpace(Current.ScreenshotsPath))
@@ -196,8 +224,9 @@ public static class Settings
     }
 
     /// <summary>Chame depois de alterar qualquer valor: salva (com debounce) e avisa a interface.</summary>
-    public static void Apply()
+    public static void Apply(SettingsChange kind = SettingsChange.All)
     {
+        ChangedKind?.Invoke(kind);
         Changed?.Invoke();
         Save();
     }
@@ -273,6 +302,8 @@ public static class Log
     {
         try { File.AppendAllText(Path.Combine(Settings.DataDir, "log.txt"), $"[{DateTime.Now:s}] {o}\n"); }
         catch { }
+        // Exceção também vira sinal visível: Configurações → Diagnóstico (antes ficava só no txt).
+        if (o is Exception ex) Diagnostics.Record(ex);
     }
 }
 
@@ -355,6 +386,7 @@ public static class HomeWidgets
         if (i < 0 || j < 0 || j >= list.Count) return;
         (list[i], list[j]) = (list[j], list[i]);
         Settings.Current.HomeOrder = list;
+        CardCatalog.SyncHomeNatives();
         Settings.Apply();
     }
 }
