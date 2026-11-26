@@ -21,3 +21,8 @@ tools/
 
 # Capturas do harness de verificação visual (--shot)
 shots/
+
+# Launcher do Taskless: precisa ser versionado (o `bin/` acima é só saída de build)
+!.taskless/bin/
+!.taskless/bin/cli.mjs
+!.taskless/bin/cli.lock.json

@@ -29,7 +29,7 @@ public sealed class SettingsWindow : Window
         Icon = AppIcon.Window();
         Width = 900; Height = 680; MinWidth = 740; MinHeight = 480;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        Background = K.Hex("#FF050505");
+        Background = K.Bg;
         Foreground = K.Fg;
         FontFamily = K.Font;
         UseLayoutRounding = true;
@@ -44,8 +44,8 @@ public sealed class SettingsWindow : Window
         var side = new Border { Background = K.Hex("#FF0A0A0B"), BorderBrush = K.Stroke, BorderThickness = new Thickness(0, 0, 1, 0) };
         var sp = new StackPanel { Margin = new Thickness(14, 22, 14, 14) };
         var brand = new StackPanel { Margin = new Thickness(8, 0, 0, 18) };
-        brand.Children.Add(FK.Mono("TZISLAND", 15, K.Fg));
-        brand.Children.Add(FK.Mono("CONFIGURAÇÕES", 9.5, K.Accent, true).M(0, 2, 0, 0));
+        brand.Children.Add(K.T("TzIsland", 15, K.Fg, true));
+        brand.Children.Add(K.T("Configurações", 11.5, K.Muted).M(0, 1, 0, 0));
         sp.Children.Add(brand);
 
         AddTab(sp, "\uE706", "Aparência", Appearance);
@@ -96,9 +96,9 @@ public sealed class SettingsWindow : Window
         for (int k = 0; k < _nav.Count; k++)
         {
             bool on = k == i;
-            _nav[k].btn.Background = on ? K.White : K.Clear;
-            _nav[k].glyph.Foreground = on ? K.Ink : K.Label;
-            _nav[k].label.Foreground = on ? K.Ink : K.Label;
+            _nav[k].btn.Background = on ? K.Raised : K.Clear;
+            _nav[k].glyph.Foreground = on ? K.Accent : K.Label;
+            _nav[k].label.Foreground = on ? K.Fg : K.Label;
         }
         var body = _nav[i].build();
         body.Margin = new Thickness(0, 6, 18, 28);
@@ -124,18 +124,18 @@ public sealed class SettingsWindow : Window
 
     static void Section(StackPanel p, string t)
     {
-        var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 18, 0, 8) };
-        head.Children.Add(new Border { Width = 6, Height = 6, CornerRadius = new CornerRadius(3), Background = K.Accent, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 9, 0) });
-        head.Children.Add(FK.Mono(t.ToUpperInvariant(), 11, K.Label, true).Vc());
+        // Sem bolinha e sem caixa alta: só o rótulo da seção, como nos Ajustes do macOS.
+        var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 20, 0, 8) };
+        head.Children.Add(K.T(t, 12, K.Label, true).Vc());
         p.Children.Add(head);
         var inner = new StackPanel();
-        p.Children.Add(K.CardBox(inner, 16, new Thickness(18, 4, 18, 8)));
+        p.Children.Add(K.CardBox(inner, 14, new Thickness(16, 2, 16, 2)));
         Cards[p] = inner;
     }
 
     static TextBlock Note(StackPanel p, string t)
     {
-        var n = K.T(t, 11.5, K.Muted);
+        var n = K.T(t, 11.5, K.Faint);
         n.TextWrapping = TextWrapping.Wrap; n.TextTrimming = TextTrimming.None; n.Margin = new Thickness(0, 8, 0, 6);
         Host(p).Children.Add(n);
         return n;
@@ -144,7 +144,7 @@ public sealed class SettingsWindow : Window
     static void Check(StackPanel p, string label, Func<bool> get, Action<bool> set)
     {
         var g = K.Cols("*", "auto");
-        g.Margin = new Thickness(0, 12, 0, 12);
+        g.Margin = new Thickness(0, 2, 0, 2); g.MinHeight = 44;
         var l = K.T(label, 13, K.Fg); l.TextWrapping = TextWrapping.Wrap; l.TextTrimming = TextTrimming.None; l.Margin = new Thickness(0, 0, 16, 0);
         g.Children.Add(l.Vc());
         var sw = new SwitchToggle(); sw.SnapTo(get());
@@ -155,12 +155,12 @@ public sealed class SettingsWindow : Window
 
     static void Slide(StackPanel p, string label, double min, double max, Func<double> get, Action<double> set, string fmt = "0")
     {
-        var box = new StackPanel { Margin = new Thickness(0, 12, 0, 12) };
+        var box = new StackPanel { Margin = new Thickness(0, 10, 0, 10) };
         var top = K.Cols("*", "auto");
         var l = K.T(label, 13, K.Fg); l.TextTrimming = TextTrimming.None; l.TextWrapping = TextWrapping.Wrap; l.Margin = new Thickness(0, 0, 12, 0);
         // Campo numérico: permite digitar o valor exato em vez de arrastar a barra milimetricamente.
         var v = K.NumBox(get().ToString(fmt, CultureInfo.InvariantCulture));
-        v.Foreground = K.Accent; v.MaxLength = 8;
+        v.Foreground = K.Fg; v.MaxLength = 8;
         top.Children.Add(l.Vc()); top.Children.Add(v.At(col: 1).Vc());
         box.Children.Add(top);
         var s = new PillSlider { Value = max > min ? (get() - min) / (max - min) : 0, Margin = new Thickness(0, 6, 0, 0) };
@@ -206,8 +206,8 @@ public sealed class SettingsWindow : Window
             foreach (var o in opts)
             {
                 bool on = EqualityComparer<T>.Default.Equals(o.v, get());
-                o.b.Background = on ? K.White : K.CardStrong;
-                o.t.Foreground = on ? K.Ink : K.Label;
+                o.b.Background = on ? K.Knob : K.CardStrong;
+                o.t.Foreground = on ? K.Fg : K.Label;
             }
         }
         foreach (var (text, value) in items)
@@ -243,7 +243,7 @@ public sealed class SettingsWindow : Window
         b.Padding = new Thickness(16, 9, 16, 9);
         b.Margin = new Thickness(0, 10, 8, 8);
         b.HorizontalAlignment = HorizontalAlignment.Left;
-        b.Background = danger ? K.Hex("#33FF453A") : K.CardStrong;
+        b.Background = danger ? K.Hex("#33FF453A") : K.Raised;
         if (danger) b.Content = K.T(text, 12.5, K.Red, true);
         Host(p).Children.Add(b);
         return b;
@@ -314,6 +314,11 @@ public sealed class SettingsWindow : Window
             var head = K.T($"Sessão há {Diagnostics.Uptime:h\\:mm\\:ss} · {Diagnostics.Errors} erro(s) · {MotionStats.LongFrames} quadro(s) longo(s) de {MotionStats.Frames}", 12, K.Fg);
             head.TextWrapping = TextWrapping.Wrap;
             box.Children.Add(head);
+            // A régua de desempenho fica à vista: CPU do processo, RAM privada e p95 de quadro.
+            var perf = K.T(Perf.Line() + (Eco.Active ? $" · economia: {Eco.Reason}" : ""), 11.5, K.Dim);
+            perf.TextWrapping = TextWrapping.Wrap;
+            perf.Margin = new Thickness(0, 4, 0, 0);
+            box.Children.Add(perf);
             var top = Diagnostics.Top(6);
             if (top.Count == 0) box.Children.Add(K.T("Nenhum erro registrado nesta sessão.", 11.5, K.Dim).M(0, 4, 0, 0));
             foreach (var (sig, n) in top)
@@ -339,7 +344,8 @@ public sealed class SettingsWindow : Window
         Host(p).Children.Add(status);
 
         Section(p, "Dados");
-        Note(p, "O backup leva ajustes, notas, tarefas, água e itens fixados da área de transferência. O log de diagnóstico fica de fora. Depois de importar, feche e abra o TzIsland.");
+        Note(p, "O backup leva ajustes, notas, tarefas, água e itens fixados da área de transferência. O log de diagnóstico fica de fora. Cada backup tem um manifest com a versão do esquema: um backup mais novo que este app é recusado em vez de importado pela metade. Depois de importar, feche e abra o TzIsland.");
+        Check(p, "Backup automático diário (mantém os 7 últimos)", () => S.AutoBackup, v => S.AutoBackup = v);
         Btn(p, "Exportar dados…", () =>
         {
             string f = Backup.Export();
@@ -348,7 +354,7 @@ public sealed class SettingsWindow : Window
         Btn(p, "Importar dados…", () =>
         {
             int n = Backup.Import();
-            status.Text = n > 0 ? $"{n} arquivo(s) importado(s) — reinicie o TzIsland para aplicar." : "";
+            status.Text = n > 0 ? $"{n} arquivo(s) importado(s) — reinicie o TzIsland para aplicar. {Backup.LastMessage}" : (Backup.LastMessage ?? "");
         });
         return p;
     }
@@ -389,7 +395,7 @@ public sealed class SettingsWindow : Window
     {
         var g = K.Cols("auto", "*");
         g.Margin = new Thickness(0, 10, 0, 10);
-        var ic = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(17), Background = K.CardStrong, Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center, Child = Ico.Make(icon, 16, K.Fg, 1.8) };
+        var ic = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(17), Background = K.Raised, Margin = new Thickness(0, 0, 14, 0), VerticalAlignment = VerticalAlignment.Center, Child = Ico.Make(icon, 16, K.Fg, 1.8) };
         ((FrameworkElement)ic.Child).HorizontalAlignment = HorizontalAlignment.Center; ((FrameworkElement)ic.Child).VerticalAlignment = VerticalAlignment.Center;
         g.Children.Add(ic);
         var t = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
@@ -426,6 +432,10 @@ public sealed class SettingsWindow : Window
 
         Section(p, "Janelas e Tela Cheia");
         Combo(p, "Em aplicativos em tela inteira", new[] { ("Ocultar", FullscreenMode.Hide), ("Visível, sem expandir", FullscreenMode.NoExpand), ("Normal", FullscreenMode.Keep) }, () => S.Fullscreen, v => S.Fullscreen = v);
+
+        Section(p, "Energia");
+        Check(p, "Modo economia automático em bateria (abaixo de 20%)", () => S.AutoEco, v => { S.AutoEco = v; Eco.Evaluate(); });
+        Note(p, "Espaça o tique, desliga espectro/HUD e suspende clima e calendário até voltar à tomada. Nenhuma animação muda — o ganho vem de não trabalhar à toa.");
 
         Section(p, "Integração com o Sistema");
         Check(p, "Iniciar automaticamente com o Windows", () => S.StartWithWindows, v => S.StartWithWindows = v);

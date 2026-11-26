@@ -533,7 +533,7 @@ public sealed class MirrorPage : PageBase
     {
         var g = K.Cols("*", "230");
         var mirrorInner = K.RoundClip(new Grid { Children = { _view, _status } }, 15);
-        var frame = new Border { CornerRadius = new CornerRadius(16), Background = K.Surface, BorderBrush = K.Stroke, BorderThickness = new Thickness(1), Child = mirrorInner, Margin = new Thickness(0, 0, 12, 0) };
+        var frame = new Border { CornerRadius = new CornerRadius(16), Background = K.Surface, BorderBrush = K.CardStroke, BorderThickness = new Thickness(1), Child = mirrorInner, Margin = new Thickness(0, 0, 12, 0) };
         _status.HorizontalAlignment = HorizontalAlignment.Center; _status.VerticalAlignment = VerticalAlignment.Center;
         g.Children.Add(frame);
 

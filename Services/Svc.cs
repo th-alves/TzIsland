@@ -39,6 +39,7 @@ public static class Svc
         Water.Start();
         Clipboard.Start();
         Updates.Start();
+        Eco.Start();
         if (s.IsOn("media")) _ = Media.StartAsync();
         if (s.IsOn("inbox")) _ = WinNotifs.StartAsync();
         if (s.IsOn("ai")) Agents.Start();

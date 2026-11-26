@@ -26,7 +26,7 @@ public sealed class FocusPage : PageBase, IFrameSink
     // ---- Pomodoro
     readonly RingProgress _ring = new() { Width = 124, Height = 124, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     public override FrameworkElement? Hero => _ring;   // recebe o portador que vem do tempo recolhido
-    readonly TextBlock _pTime = K.Num("25:00", 24), _pPhase = K.T("Foco", 11.5, K.Label), _pDone = K.T("0 concluídos", 10.5, K.Muted), _pFoot = K.T("", 10.5, K.Muted);
+    readonly TextBlock _pTime = K.Num("25:00", 24), _pPhase = K.T("Foco", 11.5, K.Label), _pDone = K.T("0 concluídos", 10.5, K.Faint), _pFoot = K.T("", 10.5, K.Faint);
     readonly Button _pPlay;
 
     // ---- Timer
@@ -147,8 +147,12 @@ public sealed class FocusPage : PageBase, IFrameSink
         tBtns.ColumnDefinitions.Add(_cancelCol);
         _tStart = FK.PillButton("Iniciar", "\uE768", () => F.TimerToggle(), 36, 18);
         _tStart.HorizontalAlignment = HorizontalAlignment.Stretch;
-        _tReset = FK.GhostPill("Cancelar", "\uE711", () => F.TimerReset(), 36, 18);
-        _tReset.Opacity = 0; _tReset.ClipToBounds = true; _tReset.IsHitTestVisible = false;
+        _tStart.Padding = new Thickness(10, 0, 10, 0);
+        // Cartão estreito: "Pausar" e "Cancelar" lado a lado espremiam o texto. O cancelar virou um alvo redondo
+        // de 32 px (mesma linguagem dos controles do cronômetro), deixando a largura toda para o botão principal.
+        _tReset = FK.RoundButton(FK.Cross(11, 1.7, K.Fg), "Cancelar", () => F.TimerReset(), 32, K.Track);
+        _tReset.VerticalAlignment = VerticalAlignment.Center;
+        _tReset.Opacity = 0; _tReset.IsHitTestVisible = false;
         tBtns.Children.Add(_tStart);
         tBtns.Children.Add(_tReset.At(col: 1));
         tGrid.Children.Add(tBtns.At(row: 4));
@@ -376,8 +380,9 @@ public sealed class FocusPage : PageBase, IFrameSink
         }
         _resetS.To(touched ? 1 : 0, 0, 380, 17); _resetS.Step(dt);
         double rr = Math.Clamp(_resetS.Value, 0, 1.12);
-        _cancelCol.Width = new GridLength(Math.Max(0, rr), GridUnitType.Star);
-        _tReset.Margin = new Thickness(8 * Math.Clamp(rr, 0, 1), 0, 0, 0);
+        // A coluna reserva o botão MAIS o recuo esquerdo: com só 32 px o alvo de 32 px era espremido pelo Grid.
+        _cancelCol.Width = new GridLength((32 + 6) * Math.Min(1, Math.Max(0, rr)));
+        _tReset.Margin = new Thickness(6 * Math.Clamp(rr, 0, 1), 0, 0, 0);
         _tReset.Opacity = Math.Clamp(rr, 0, 1);
         _tReset.IsHitTestVisible = rr > 0.6;
 

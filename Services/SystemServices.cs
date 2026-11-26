@@ -65,7 +65,16 @@ public sealed class AudioService
         }
         catch (Exception e) { Log.Write(e); }
         _mic.Tick += async (_, _) => await PollMicAsync();
-        _mic.Start();
+        Settings.Changed += SyncMicPolling;
+        SyncMicPolling();
+    }
+
+    /// <summary>Só existe tique de microfone quando a vigilância está ligada (antes eram 15 acordadas/min à toa).</summary>
+    void SyncMicPolling()
+    {
+        if (Settings.Current.MonitorMicrophone) { if (!_mic.IsEnabled) _mic.Start(); return; }
+        _mic.Stop();
+        if (MicApps.Count > 0) { MicApps = Array.Empty<string>(); MicChanged?.Invoke(); }
     }
 
     public float Volume

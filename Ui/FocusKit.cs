@@ -14,12 +14,12 @@ public static class FK
     /// <summary>Cartão da página: superfície índigo, borda fina, elevação ao passar o mouse.</summary>
     public static Border Card(UIElement child, double radius = 18)
     {
-        var border = new SolidColorBrush(((SolidColorBrush)K.Stroke).Color);
+        var border = new SolidColorBrush(((SolidColorBrush)K.CardStroke).Color);
         var tt = new TranslateTransform();
         var sc = new ScaleTransform(1, 1);
         var card = new Border
         {
-            Background = K.Surface, CornerRadius = new CornerRadius(radius), Padding = new Thickness(15, 13, 15, 13),
+            Background = K.Surface, CornerRadius = new CornerRadius(radius), Padding = new Thickness(16, 14, 16, 14),
             BorderBrush = border, BorderThickness = new Thickness(1), Child = child,
             RenderTransformOrigin = new Point(0.5, 0.5),
             RenderTransform = new TransformGroup { Children = { sc, tt } }
@@ -27,12 +27,12 @@ public static class FK
         // Hover com mola e posse: sair e voltar rápido não salta (antes era storyboard "To" sem "From").
         Interaction.Lift(card, Tz.Dist.Lift, on => Interaction.Tint(
             border,
-            ((SolidColorBrush)(on ? K.StrokeHi : K.Stroke)).Color,
+            ((SolidColorBrush)(on ? K.CardStrokeHi : K.CardStroke)).Color,
             on ? 220 : 320));
         return card;
     }
 
-    /// <summary>Cabeçalho do cartão: ícone cinza + RÓTULO em caixa alta espaçada.</summary>
+    /// <summary>Cabeçalho do cartão: ícone cinza + rótulo curto em caixa normal.</summary>
     public static StackPanel Header(string glyph, string title) => Header(K.Glyph(glyph, 11, K.Label), title);
 
     public static StackPanel Header(UIElement icon, string title)
@@ -87,11 +87,36 @@ public static class FK
     }
 
     public static Button RoundButton(string glyph, string tip, Action click, double size, Brush bg, Brush fg, double glyphSize = 14)
+        => RoundButton(K.Glyph(glyph, glyphSize, fg), tip, click, size, bg);
+
+    public static Button RoundButton(UIElement content, string tip, Action click, double size, Brush bg)
     {
-        var b = new Button { Style = K.Fill, Width = size, Height = size, Background = bg, Tag = new CornerRadius(size / 2), ToolTip = tip, Content = K.Glyph(glyph, glyphSize, fg) };
+        var b = new Button { Style = K.Fill, Width = size, Height = size, Background = bg, Tag = new CornerRadius(size / 2), ToolTip = tip, Content = content };
         Interaction.Press(b);
         b.Click += (_, _) => click();
         return b;
+    }
+
+    static readonly Geometry CrossGeo = Fz(Geometry.Parse("M 0,0 L 10,10 M 10,0 L 0,10"));
+
+    static Geometry Fz(Geometry g) { g.Freeze(); return g; }
+
+    /// <summary>✕ vetorial: o glifo da fonte não fica no centro óptico do alvo redondo (desce/sobe conforme a métrica).</summary>
+    public static UIElement Cross(double size, double stroke, Brush fg)
+    {
+        // O traço cresce metade para fora do contorno: o desenho útil é size - stroke,
+        // e o Grid centraliza o quadrado exato — centro geométrico garantido.
+        double d = Math.Max(1, size - stroke);
+        var path = new System.Windows.Shapes.Path
+        {
+            Data = CrossGeo, Stretch = Stretch.Uniform, Width = d, Height = d,
+            Stroke = fg, StrokeThickness = stroke,
+            StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+        };
+        var g = new Grid { Width = size, Height = size, IsHitTestVisible = false };
+        g.Children.Add(path);
+        return g;
     }
 }
 
@@ -299,7 +324,7 @@ public sealed class ChipRow : Grid
     // Camadas (de baixo para cima): pílulas escuras -> lente branca que desliza -> textos (que recebem o clique).
     // O texto fica ACIMA da lente e muda de cor conforme a lente passa por ele, igual à barra de seções.
     readonly List<(Border hit, SolidColorBrush fg)> _chips = new();
-    readonly Border _hl = new() { Background = K.White, CornerRadius = new CornerRadius(14), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Height = 28, IsHitTestVisible = false };
+    readonly Border _hl = new() { Background = K.Knob, CornerRadius = new CornerRadius(14), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center, Height = 28, IsHitTestVisible = false };
     readonly Spring _x = new(0), _o = new(0);
     readonly MotionLoop _loop;
     readonly TranslateTransform _tt = new();
@@ -318,8 +343,8 @@ public sealed class ChipRow : Grid
         for (int i = 0; i < labs.Count; i++)
             baseRow.Children.Add(new Border
             {
-                Width = chipWidth, Height = 28, CornerRadius = new CornerRadius(14), Background = K.Card,
-                BorderBrush = K.Stroke, BorderThickness = new Thickness(1), Margin = new Thickness(i == 0 ? 0 : gap, 0, 0, 0)
+                Width = chipWidth, Height = 28, CornerRadius = new CornerRadius(14), Background = K.Raised,
+                Margin = new Thickness(i == 0 ? 0 : gap, 0, 0, 0)
             });
         Children.Add(baseRow);
 
@@ -378,7 +403,7 @@ public sealed class ChipRow : Grid
         double o = Math.Clamp(_o.Value, 0, 1);
         _hl.Opacity = o;
         double hlC = _x.Value + _w / 2;
-        var dark = Color.FromRgb(0x0A, 0x0A, 0x0B); var light = ((SolidColorBrush)K.Label).Color;
+        var dark = ((SolidColorBrush)K.Fg).Color; var light = ((SolidColorBrush)K.Label).Color;
         for (int i = 0; i < _chips.Count; i++)
         {
             double cc = PosOf(i) + _w / 2;

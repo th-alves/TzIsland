@@ -33,6 +33,7 @@ public sealed class HomePage : PageBase, ICardPage
     readonly Grid _briRow = K.Cols("22", "*");
     // Clima / Agenda
     readonly TextBlock _temp = K.Num("", 28), _wLabel = K.T("", 11.5, K.Label), _wDays = K.T("", 10.5, K.Muted);
+    readonly Border _wIconHost = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
     readonly TextBlock _next = K.T("", 12.5, K.Fg, true), _nextSub = K.T("", 11, K.Muted);
     readonly DispatcherTimer _t = new() { Interval = TimeSpan.FromSeconds(1) };
     int _tick;
@@ -114,7 +115,11 @@ public sealed class HomePage : PageBase, ICardPage
 
         // ---- CLIMA
         var wx = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        wx.Children.Add(_temp); wx.Children.Add(_wLabel.M(0, 1, 0, 0)); wx.Children.Add(Wrap(_wDays).M(0, 3, 0, 0));
+        _wIconHost.Child = Ico.Make("cloud", 13, K.Label, 1.9);
+        var wxRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 0) };
+        wxRow.Children.Add(_wIconHost);
+        wxRow.Children.Add(_wLabel.Vc());
+        wx.Children.Add(_temp); wx.Children.Add(wxRow); wx.Children.Add(Wrap(_wDays).M(0, 3, 0, 0));
         var wxCard = Card("cloud", "Clima", wx);
 
         // ---- AGENDA
@@ -156,7 +161,7 @@ public sealed class HomePage : PageBase, ICardPage
         fe.Margin = new Thickness(0, 8, 0, 0);
         if (body is StackPanel) fe.VerticalAlignment = VerticalAlignment.Top;
         var c = FK.Card(g, 18);
-        c.Padding = new Thickness(14, 10, 14, 9);
+        c.Padding = new Thickness(16, 12, 16, 10);
         return c;
     }
 
@@ -219,7 +224,7 @@ public sealed class HomePage : PageBase, ICardPage
     {
         var m = Svc.Media;
         _title.Text = m.HasSession && m.Title.Length > 0 ? m.Title : "Nada tocando";
-        _artist.Text = K.Spaced(m.Artist);
+        _artist.Text = m.Artist;
         _play.Content = K.Glyph(m.Playing ? "\uE769" : "\uE768", 10, K.Ink);
     }
 
@@ -228,7 +233,8 @@ public sealed class HomePage : PageBase, ICardPage
         var w = Svc.Weather;
         if (!w.Ok) { _temp.Text = "—"; _wLabel.Text = "Clima indisponível"; _wDays.Text = ""; return; }
         _temp.Text = $"{Math.Round(w.Temp)}°";
-        _wLabel.Text = $"{WeatherService.Emoji(w.Code)}  {WeatherService.Label(w.Code)}";
+        _wLabel.Text = WeatherService.Label(w.Code);
+        _wIconHost.Child = Ico.Make(WeatherService.Icon(w.Code), 13, K.Label, 1.9);
         _wDays.Text = string.Join("   ", w.Days.Skip(1).Take(2).Select(d => $"{d.Date.ToString("ddd", Pt)} {Math.Round(d.Max)}°/{Math.Round(d.Min)}°"));
     }
 
@@ -265,7 +271,7 @@ public sealed class MediaPage : PageBase
     readonly GradientStop _g0 = new(Color.FromRgb(0xD0, 0x8C, 0xFF), 0), _g1 = new(Color.FromRgb(0xA8, 0x55, 0xF7), 1);
     readonly GradientStop _glowStop = new(Color.FromArgb(80, 0xB5, 0x66, 0xFF), 0), _glowEdge = new(Color.FromArgb(0, 0xB5, 0x66, 0xFF), 1);
     Color _accTarget = ((SolidColorBrush)K.Violet).Color;
-    readonly PillSlider _prog = new() { ReadOnly = true, ShowThumb = true, Height = 16 };
+    readonly PillSlider _prog = new() { ReadOnly = true, Fill = K.White, ShowThumb = true, Height = 16 };
     readonly EqBars _eq = new(4) { BarWidth = 2.5, Gap = 2, Height = 12 };
     // Letra sincronizada
     readonly LyricsPane _pane = new();
@@ -283,7 +289,7 @@ public sealed class MediaPage : PageBase
 
     public MediaPage()
     {
-        var shell = new Border { Background = K.Surface, BorderBrush = K.Stroke, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(24) };
+        var shell = new Border { Background = K.Surface, BorderBrush = K.CardStroke, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(24) };
         var inner = new Grid();
         K.RoundClip(inner, 23);
         _prog.Fill = new LinearGradientBrush(new GradientStopCollection { _g0, _g1 }, 0);
@@ -443,8 +449,8 @@ public sealed class MediaPage : PageBase
     {
         var m = Svc.Media;
         _title.Text = m.HasSession && m.Title.Length > 0 ? m.Title : "Nada tocando";
-        _artist.Text = K.Spaced(m.Artist);
-        _app.Text = m.HasSession ? K.Spaced(m.App) : K.Spaced("Abra um reprodutor");
+        _artist.Text = m.Artist;
+        _app.Text = m.HasSession ? m.App : "Abra um reprodutor";
         _srcIcon.Child = Ico.Make(m.IsVideo ? "video" : "music", 13, K.Label, 1.8);
         _cover.Source = m.Cover;
         _coverIcon.Child = Ico.Make(m.IsVideo ? "video" : "music", 44, K.Muted, 1.2);
@@ -476,7 +482,7 @@ public sealed class InboxPage : PageBase
         Root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Root.RowDefinitions.Add(new RowDefinition { Height = K.GL("*") });
         var head = K.Cols("*", "auto", "auto");
-        head.Children.Add(FK.Header("\uE715", "INBOX & NOTIFICAÇÕES"));
+        head.Children.Add(FK.Header("\uE715", "Notificações"));
         head.Children.Add(_count.At(col: 1).Vc().M(0, 0, 10, 0));
         head.Children.Add(K.TextBtn("Limpar tudo", () => Hub.Inbox.Clear()).At(col: 2));
         head.Margin = new Thickness(2, 0, 2, 8);
@@ -508,7 +514,7 @@ public sealed class InboxPage : PageBase
             var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(4, 8, 0, 4) };
             var brandId = Brand.Match(grp.Key);
             if (brandId != null) { var bb = Brand.Badge(brandId, 20); bb.Margin = new Thickness(0, 0, 8, 0); head.Children.Add(bb); }
-            head.Children.Add(FK.Mono($"{grp.Key.ToUpperInvariant()}  ·  {grp.Count()}", 10, K.Muted, true).Vc());
+            head.Children.Add(K.T($"{grp.Key} · {grp.Count()}", 11, K.Label, true).Vc());
             _list.Children.Add(head);
             foreach (var it in grp.OrderByDescending(x => x.Important).ThenByDescending(x => x.Time))
             {
@@ -548,9 +554,9 @@ public sealed class InboxPage : PageBase
         {
             Background = K.Card,
             CornerRadius = new CornerRadius(14),
-            BorderBrush = K.Stroke,
+            BorderBrush = K.CardStroke,
             BorderThickness = new Thickness(1),
-            Padding = new Thickness(12, 8, 8, 8),
+            Padding = new Thickness(12, 10, 10, 10),
             Margin = new Thickness(0, 0, 0, 5),
             Child = g
         };

@@ -76,6 +76,14 @@ public class AppSettings
 
     // Não perturbar
     public bool FocusDnd { get; set; } = true;
+    /// <summary>Não perturbar ligado à mão (pela paleta ou por `--dnd on`), fora do Pomodoro.</summary>
+    public bool ManualDnd { get; set; }
+
+    // Energia e dados
+    /// <summary>Em bateria fraca (menos de 20%) ou com a economia do Windows, espaça o tique e suspende clima/calendário.</summary>
+    public bool AutoEco { get; set; } = true;
+    /// <summary>Um backup automático por dia em %AppData%\TzIsland\backups (mantém os 7 últimos).</summary>
+    public bool AutoBackup { get; set; } = true;
 
     // Atualizações (GitHub Releases)
     public bool UpdateCheckEnabled { get; set; } = true;
@@ -253,7 +261,7 @@ public static class Settings
 
     public static void WipeData()
     {
-        foreach (var n in new[] { "notes", "tasks", "events", "tray", "clipboard" })
+        foreach (var n in new[] { "notes", "tasks", "events", "tray", "clipboard", "clipboard.bin" })
         {
             try { File.Delete(Path.Combine(DataDir, n + ".json")); } catch { }
         }
@@ -298,12 +306,43 @@ public sealed class JsonStore<T> where T : new()
 
 public static class Log
 {
+    // Rotação: um app sempre-ligado enchia o log.txt por semanas, e cada evento pagava uma escrita
+    // crescente. ~1 MB, mantendo log.txt + log.1.txt + log.2.txt (3 arquivos).
+    const long MaxBytes = 1_000_000;
+    static readonly object Gate = new();
+    static long _size = -1;
+
     public static void Write(object? o)
     {
-        try { File.AppendAllText(Path.Combine(Settings.DataDir, "log.txt"), $"[{DateTime.Now:s}] {o}\n"); }
+        try
+        {
+            string path = Path.Combine(Settings.DataDir, "log.txt");
+            string line = $"[{DateTime.Now:s}] {o}\n";
+            lock (Gate)
+            {
+                if (_size < 0) _size = File.Exists(path) ? new FileInfo(path).Length : 0;
+                if (_size >= MaxBytes) { Rotate(path); _size = 0; }
+                File.AppendAllText(path, line);
+                _size += line.Length;
+            }
+        }
         catch { }
         // Exceção também vira sinal visível: Configurações → Diagnóstico (antes ficava só no txt).
         if (o is Exception ex) Diagnostics.Record(ex);
+    }
+
+    /// <summary>log.txt → log.1.txt → log.2.txt. Público para o teste de rotação.</summary>
+    public static void Rotate(string path)
+    {
+        try
+        {
+            string second = path + ".2";
+            if (File.Exists(second)) File.Delete(second);
+            string first = path + ".1";
+            if (File.Exists(first)) File.Move(first, second, true);
+            if (File.Exists(path)) File.Move(path, first, true);
+        }
+        catch { }
     }
 }
 
@@ -414,8 +453,9 @@ public static class Hub
     static readonly List<InboxItem> _held = new();
     static bool _dndWas;
 
-    /// <summary>true enquanto um Pomodoro de foco está rodando e a opção está ligada.</summary>
-    public static bool DndActive => Settings.Current.FocusDnd && Svc.Focus.Pomo.Running && Svc.Focus.Pomo.Phase == FocusPhase.Focus;
+    /// <summary>true durante um Pomodoro de foco com a opção ligada, ou com o Não perturbar manual (`--dnd on`, paleta).</summary>
+    public static bool DndActive => Settings.Current.ManualDnd ||
+        (Settings.Current.FocusDnd && Svc.Focus.Pomo.Running && Svc.Focus.Pomo.Phase == FocusPhase.Focus);
     public static int HeldCount => _held.Count;
     public static event Action? HeldChanged;
 
@@ -473,6 +513,57 @@ public static class Hub
                 if (!string.IsNullOrWhiteSpace(m.Agent))
                     AgentEventRaised?.Invoke(new AgentEvent(m.Agent!.ToLowerInvariant(), m.State, m.Text, m.Progress, m.UsageSession, m.UsageWeekly));
                 break;
+            // ---- Controle local (scripts, AutoHotkey, Stream Deck, atalhos do Windows)
+            case "timer":
+            {
+                int mins = (int)Math.Round((m.Value ?? 25) / 60.0);
+                Svc.Focus.TimerSet(mins, (int)Math.Round((m.Value ?? 0) % 60));
+                if (m.Mode is null or "start") Svc.Focus.Timer.Start();
+                else if (m.Mode == "pause") Svc.Focus.Timer.Pause();
+                else if (m.Mode == "stop") Svc.Focus.TimerReset();
+                IslandWindow.Instance?.OpenPage("focus");
+                break;
+            }
+            case "volume":
+            {
+                double v = m.Value ?? 0.4;
+                if (m.Mode is "up" or "down")
+                    v = Svc.Audio.Volume + (m.Mode == "up" ? v : -v);
+                Svc.Audio.Volume = (float)Math.Clamp(v, 0, 1);
+                break;
+            }
+            case "mute":
+                Svc.Audio.Muted = m.Mode == "off" ? false : m.Mode == "on" ? true : !Svc.Audio.Muted;
+                break;
+            case "dnd":
+            {
+                bool on = m.Mode switch { "on" => true, "off" => false, _ => !Settings.Current.ManualDnd };
+                Settings.Current.ManualDnd = on;
+                Settings.Save();
+                EvaluatedDnd();
+                Notify("Não perturbar", on ? "Ativado" : "Desativado", on ? "Os banners ficam retidos até você desligar." : "Banners voltam a aparecer.", false, true, true);
+                break;
+            }
+            case "page":
+                if (!string.IsNullOrWhiteSpace(m.Mode)) IslandWindow.Instance?.OpenPage(m.Mode!);
+                break;
+            case "media":
+                switch (m.Mode)
+                {
+                    case "next": Svc.Media.Next(); break;
+                    case "prev": Svc.Media.Prev(); break;
+                    case "play": if (!Svc.Media.Playing) Svc.Media.PlayPause(); break;
+                    case "pause": if (Svc.Media.Playing) Svc.Media.PlayPause(); break;
+                    default: Svc.Media.PlayPause(); break;
+                }
+                break;
         }
+    }
+
+    /// <summary>Reavalia o Não perturbar depois de uma mudança manual (entrega o que estava retido).</summary>
+    static void EvaluatedDnd()
+    {
+        if (DndActive) _dndWas = true;
+        else EvaluateDnd();
     }
 }

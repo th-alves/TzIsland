@@ -17,7 +17,6 @@ public static class MotionHost
     static readonly List<IFrameSink> Buffer = new();
     static bool _on;
     static long _last;
-
     static bool _paused;
 
     /// <summary>
@@ -72,9 +71,9 @@ public static class MotionHost
         long now = Stopwatch.GetTimestamp();
         double dt = (now - _last) / (double)Stopwatch.Frequency;
         _last = now;
-        if (dt < 0) dt = 0;
-        if (dt > 0.25) dt = 0.25;          // volta de suspensão: não teleporta o estado
+        dt = Math.Clamp(dt, 0, 0.25);      // volta de suspensão: não teleporta o estado
         MotionStats.Sample(dt);
+        // Um passo por quadro entregue pelo vsync: acumular espera aqui vira soluço entre quadros.
         Now += dt;
 
         Buffer.Clear();

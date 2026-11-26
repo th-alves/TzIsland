@@ -35,16 +35,29 @@ public sealed class ClipboardService
     int _suppress;
 
     static string ClipDir => System.IO.Path.Combine(Settings.DataDir, "clips");
+    /// <summary>Índice dos fixados, cifrado com DPAPI (CurrentUser). Antes era clipboard.json em claro.</summary>
+    static string VaultPath => System.IO.Path.Combine(Settings.DataDir, "clipboard.bin");
     static Dispatcher Ui => Application.Current.Dispatcher;
 
     public void Start()
     {
-        foreach (var it in _store.Data)
+        var pinned = new List<ClipItem>();
+        try
+        {
+            if (File.Exists(VaultPath))
+                pinned = JsonSerializer.Deserialize<List<ClipItem>>(Dpapi.Unprotect(File.ReadAllBytes(VaultPath)), Settings.JsonOpt) ?? new();
+            else
+                pinned = _store.Data;                    // formato antigo (texto em claro): migra ao regravar
+        }
+        catch (Exception e) { Log.Write(e); }
+
+        foreach (var it in pinned)
         {
             if (it.Kind == ClipKind.Image) { it.Image = LoadPng(it.ImagePath); if (it.Image == null) continue; }
             it.Pinned = true;
             Items.Add(it);
         }
+        if (!File.Exists(VaultPath) && Items.Count > 0) Persist();
     }
 
     public bool Enabled => Settings.Current.IsOn("clipboard");
@@ -211,7 +224,15 @@ public sealed class ClipboardService
     {
         _store.Data.Clear();
         _store.Data.AddRange(Items.Where(x => x.Pinned));
-        _store.Save();
+        try
+        {
+            Directory.CreateDirectory(Settings.DataDir);
+            var json = JsonSerializer.SerializeToUtf8Bytes(_store.Data, Settings.JsonOpt);
+            File.WriteAllBytes(VaultPath, Dpapi.Protect(json));
+            var legacy = System.IO.Path.Combine(Settings.DataDir, "clipboard.json");
+            if (File.Exists(legacy)) File.Delete(legacy);   // não deixa a cópia em claro para trás
+        }
+        catch (Exception e) { Log.Write(e); }
     }
 
     static void SavePng(ClipItem it)
@@ -222,7 +243,9 @@ public sealed class ClipboardService
             Directory.CreateDirectory(ClipDir);
             it.ImagePath = System.IO.Path.Combine(ClipDir, it.Id + ".png");
             var enc = new PngBitmapEncoder(); enc.Frames.Add(BitmapFrame.Create(it.Image));
-            using var fs = File.Create(it.ImagePath); enc.Save(fs);
+            using var ms = new MemoryStream();
+            enc.Save(ms);
+            File.WriteAllBytes(it.ImagePath, Dpapi.Protect(ms.ToArray()));
         }
         catch (Exception e) { Log.Write(e); }
     }
@@ -238,10 +261,17 @@ public sealed class ClipboardService
         try
         {
             if (!File.Exists(path)) return null;
+            var bytes = File.ReadAllBytes(path);
+            if (bytes.Length == 0) return null;
+            // PNG em claro de uma build anterior começa com a assinatura; o resto é DPAPI.
+            bool plain = bytes.Length > 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47;
+            var data = plain ? bytes : Dpapi.Unprotect(bytes);
             var b = new BitmapImage();
-            b.BeginInit(); b.CacheOption = BitmapCacheOption.OnLoad; b.UriSource = new Uri(path); b.EndInit(); b.Freeze();
+            // Fixadas são só prévia de lista: decodificar em 1024 px evita dezenas de screenshots 4K na RAM
+            // (o arquivo em disco continua no tamanho original e não é regravado a partir desta prévia).
+            b.BeginInit(); b.CacheOption = BitmapCacheOption.OnLoad; b.DecodePixelWidth = 1024; b.StreamSource = new MemoryStream(data); b.EndInit(); b.Freeze();
             return b;
         }
-        catch { return null; }
+        catch (Exception e) { Log.Write(e); return null; }
     }
 }

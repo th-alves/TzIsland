@@ -129,10 +129,10 @@ public sealed class ClipboardPage : PageBase
         var card = new Border
         {
             Width = 176, MinHeight = 82, Margin = new Thickness(0, 0, 8, 8), CornerRadius = new CornerRadius(14), Child = grid, Cursor = Cursors.Hand,
-            Background = K.Card, BorderThickness = new Thickness(1), BorderBrush = it.Pinned ? K.StrokeHi : K.Stroke
+            Background = K.Card, BorderThickness = new Thickness(1), BorderBrush = it.Pinned ? K.CardStrokeHi : K.CardStroke
         };
         K.RoundClip(grid, 13);
-        card.MouseEnter += (_, _) => { if (!it.Pinned) btns.Opacity = 1; card.Background = K.Hex("#FF1A1A1D"); };
+        card.MouseEnter += (_, _) => { if (!it.Pinned) btns.Opacity = 1; card.Background = K.Raised; };
         card.MouseLeave += (_, _) => { if (!it.Pinned) btns.Opacity = 0; card.Background = K.Card; };
         card.MouseLeftButtonDown += (_, e) =>
         {

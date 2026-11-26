@@ -12,21 +12,21 @@ namespace TzIsland;
 sealed class NotesView : PageBase
 {
     static readonly CultureInfo Pt = new("pt-BR");
-    static readonly Brush EditorBg = K.Hex("#FF1C1C1E"), EditorStroke = K.Hex("#FF2A2A2D"), Hover = K.Hex("#FF1A1A1D"),
-        CodeBg = K.Hex("#FF2C2C30"), Selection = K.Hex("#FF4A6CF7");
+    static readonly Brush EditorBg = K.Card, EditorStroke = K.Stroke, Hover = K.Raised,
+        CodeBg = K.CardStrong, Selection = K.Hex("#FF4A6CF7");
     const double HeadingSize = 17, BodySize = 13;
 
     readonly RichTextBox _edit = new();
     readonly Border _editorCard;
     readonly TextBlock _hint = K.T("Escreva sua anotação…", BodySize, K.Muted);
     readonly Grid _layout = K.Cols("auto", "auto", "*");
-    readonly Border _leftHost = new() { Width = 236 }, _divider = new() { Width = 1, Margin = new Thickness(14, 2, 14, 2), Background = K.Hex("#FF1F1F22") };
+    readonly Border _leftHost = new() { Width = 236 }, _divider = new() { Width = 1, Margin = new Thickness(14, 2, 14, 2), Background = K.Stroke };
     readonly UniformGrid _format = new() { Columns = 4, VerticalAlignment = VerticalAlignment.Top };
     readonly StackPanel _list = new();
     readonly Dictionary<string, Button> _fmtBtns = new();
     readonly DispatcherTimer _debounce = new() { Interval = TimeSpan.FromMilliseconds(600) };
     readonly TextBlock _count = K.T("", 12, K.Muted, true);
-    readonly Border _segHl = new() { Width = 30, Height = 24, CornerRadius = new CornerRadius(12), Background = K.Hex("#FF3A3A3E"), HorizontalAlignment = HorizontalAlignment.Left, RenderTransform = new TranslateTransform() };
+    readonly Border _segHl = new() { Width = 30, Height = 24, CornerRadius = new CornerRadius(12), Background = K.Knob, HorizontalAlignment = HorizontalAlignment.Left, RenderTransform = new TranslateTransform() };
     readonly Border _savedDot = new() { Width = 26, Height = 26, CornerRadius = new CornerRadius(13) };
     readonly Button _maxBtn;
     Note? _cur;
@@ -105,7 +105,7 @@ sealed class NotesView : PageBase
     {
         var g = K.Cols("auto", "auto", "auto", "*", "auto");
         g.Children.Add(_count.Vc().M(0, 0, 10, 0));
-        g.Children.Add(new Border { Width = 1, Height = 16, Background = K.Hex("#FF2A2A2D"), Margin = new Thickness(0, 0, 10, 0) }.At(col: 1).Vc());
+        g.Children.Add(new Border { Width = 1, Height = 16, Background = K.Stroke, Margin = new Thickness(0, 0, 10, 0) }.At(col: 1).Vc());
 
         // Alternador [lista | Aa]
         var seg = new Grid { Height = 28 };
@@ -233,7 +233,7 @@ sealed class NotesView : PageBase
         Set("heading", heading);
 
         static bool Eq(object v, object want) => v != DependencyProperty.UnsetValue && Equals(v, want);
-        void Set(string id, bool on) => _fmtBtns[id].Background = on ? K.Hex("#FF26262A") : Brushes.Transparent;
+        void Set(string id, bool on) => _fmtBtns[id].Background = on ? K.Raised : Brushes.Transparent;
     }
 
     void ToggleStrike()
@@ -328,7 +328,7 @@ sealed class NotesView : PageBase
             s.Children.Add(K.T(note.Updated.ToString("d MMM 'às' HH:mm", Pt), 10, K.Muted).M(0, 2, 0, 0));
             var b = new Button
             {
-                Style = K.Ghost, Content = s, Background = sel ? K.Hex("#FF1C1C1E") : Brushes.Transparent, Tag = new CornerRadius(12),
+                Style = K.Ghost, Content = s, Background = sel ? K.Raised : Brushes.Transparent, Tag = new CornerRadius(12),
                 Padding = new Thickness(11, 8, 11, 8), Margin = new Thickness(0, 0, 0, 3), HorizontalContentAlignment = HorizontalAlignment.Stretch
             };
             s.Width = 186;

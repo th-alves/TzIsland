@@ -1,3 +1,4 @@
+using System.Windows.Automation;
 using System.Windows.Markup;
 using System.Windows.Media.Animation;
 
@@ -23,22 +24,34 @@ public static class K
         return b;
     }
 
-    // ---- Paleta "Premium Night Black": preto puro, cartões quase-pretos neutros, bordas de 1 px, texto em cinzas Apple.
-    public static readonly Brush Fg = Mk("#FFF5F5F7"), Dim = Mk("#FFA1A1A6"), Faint = Mk("#FF6E6E73"),
-        Card = Mk("#FF141416"), CardStrong = Mk("#FF232326"), Green = Mk("#FF30D158"),
+    // ---- Paleta "Cupertino Dark": cinzas neutros da Apple, hierarquia por tom e traço em branco translúcido.
+    public static readonly Brush Fg = Mk("#FFF5F5F7"), Dim = Mk("#FFB4B4BA"), Faint = Mk("#FF8E8E93"),
+        Card = Mk("#FF141417"), CardStrong = Mk("#FF232327"), Green = Mk("#FF30D158"),
         Red = Mk("#FFFF453A"), Orange = Mk("#FFFF9F0A"), Clear = Brushes.Transparent,
         Cyan = Mk("#FF64D2FF"), Purple = Mk("#FFBF5AF2"), Neon = Mk("#FF00D4AA");
 
-    // Acentos: o app é monocromático; cada seção usa no máximo UMA cor de destaque.
+    // Acentos: azul de sistema em tudo que é interativo; o branco fica reservado para a ação primária.
     public static readonly Brush Violet = Mk("#FFB566FF"), Sky = Mk("#FF64B5FF");
 
-    public static readonly Brush Surface = Mk("#FF0E0E10"), Stroke = Mk("#FF1D1D20"), StrokeHi = Mk("#FF323236"),
-        Accent = Mk("#FFFFFFFF"), Label = Mk("#FF8E8E93"), Muted = Mk("#FF636366"),
-        Track = Mk("#FF2A2A2D"), White = Mk("#FFFFFFFF"), Ink = Mk("#FF0A0A0B"), Bg = Mk("#FF000000");
+    public static readonly Brush Surface = Elevation(), Stroke = Mk("#14FFFFFF"), StrokeHi = Mk("#2EFFFFFF"),
+        // Contorno dos cartões: branco leitoso opaco (1 px). O traço translúcido sumia sobre a superfície escura.
+        CardStroke = Mk("#FFECECEC"), CardStrokeHi = Mk("#FFFFFFFF"),
+        Accent = Mk("#FF0A84FF"), Label = Mk("#FF9A9AA0"), Muted = Mk("#FF6E6E73"),
+        Track = Mk("#FF26262A"), Raised = Mk("#FF1F1F23"), Knob = Mk("#FF5A5A60"),
+        White = Mk("#FFFFFFFF"), Ink = Mk("#FF0A0A0B"), Bg = Mk("#FF000000");
+
+    /// <summary>Superfície de cartão: gradiente quase imperceptível de cima para baixo (todo material pega luz).</summary>
+    static Brush Elevation()
+    {
+        var g = new LinearGradientBrush(Color.FromRgb(0x19, 0x19, 0x1D), Color.FromRgb(0x0E, 0x0E, 0x10), 90);
+        g.Freeze();
+        return g;
+    }
+
 
     public static SolidColorBrush Hex(string hex) => Mk(hex);
 
-    public static LinearGradientBrush AccentGradient => new(Color.FromRgb(0xFF, 0xFF, 0xFF), Color.FromRgb(0xD8, 0xD8, 0xDE), 0);
+    public static LinearGradientBrush AccentGradient => new(Color.FromRgb(0x0A, 0x84, 0xFF), Color.FromRgb(0x00, 0x71, 0xE3), 0);
     public static LinearGradientBrush VioletGradient => new(Color.FromRgb(0xD0, 0x8C, 0xFF), Color.FromRgb(0xA8, 0x55, 0xF7), 0);
 
     const string Ns = "xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" xmlns:x=\"http://schemas.microsoft.com/winfx/2006/xaml\"";
@@ -147,19 +160,18 @@ public static class K
         return t;
     }
 
-    /// <summary>CAIXA ALTA com "hair space" entre as letras: simula o espaçamento (tracking) que o WPF não tem.</summary>
+    /// <summary>Espaçamento entre letras simulado com "hair space" (usado só onde o tracking é intencional).</summary>
     public static string Spaced(string text)
     {
-        var up = text.ToUpperInvariant();
-        var sb = new System.Text.StringBuilder(up.Length * 2);
-        for (int i = 0; i < up.Length; i++) { sb.Append(up[i]); if (i < up.Length - 1 && up[i] != ' ' && up[i + 1] != ' ') sb.Append('\u200A'); }
+        var sb = new System.Text.StringBuilder(text.Length * 2);
+        for (int i = 0; i < text.Length; i++) { sb.Append(text[i]); if (i < text.Length - 1 && text[i] != ' ' && text[i + 1] != ' ') sb.Append('\u200A'); }
         return sb.ToString();
     }
 
-    /// <summary>Rótulo de cartão: caixa alta pequena e espaçada, no estilo das referências.</summary>
-    public static TextBlock Cap(string text, double size = 9.5, Brush? fg = null)
+    /// <summary>Rótulo de cartão: cinza secundário em caixa normal — a Apple não usa caixa alta espaçada.</summary>
+    public static TextBlock Cap(string text, double size = 11, Brush? fg = null)
     {
-        var t = T(Spaced(text), size, fg ?? Label, true);
+        var t = T(text, Math.Max(size, 10.5), fg ?? Label, true);
         t.TextTrimming = TextTrimming.None;
         return t;
     }
@@ -170,6 +182,19 @@ public static class K
         VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center
     };
 
+    /// <summary>Anel de foco visível nos alvos só de ícone (Tab/teclado). Antes a ilha era mouse-only.</summary>
+    static readonly Style FocusRing = (Style)XamlReader.Parse($$"""
+<Style {{Ns}} TargetType="Control">
+  <Setter Property="Template">
+    <Setter.Value>
+      <ControlTemplate TargetType="Control">
+        <Border BorderBrush="#FF0A84FF" BorderThickness="2" CornerRadius="10" Margin="-3"/>
+      </ControlTemplate>
+    </Setter.Value>
+  </Setter>
+</Style>
+""");
+
     public static Button IconBtn(string glyph, string tip, Action click, double size = 15, double w = 34, double h = 30, Brush? fg = null)
     {
         var b = new Button
@@ -177,6 +202,11 @@ public static class K
             Style = GhostStyle, Width = w, Height = h, ToolTip = tip, Tag = new CornerRadius(h / 2),
             Content = glyph.Length > 1 ? (object)T(glyph, size - 2, fg, true) : Glyph(glyph, size, fg)
         };
+        // O template não traz nome acessível: os 13 botões só de ícone da barra eram invisíveis para leitores de tela.
+        AutomationProperties.SetName(b, tip);
+        AutomationProperties.SetHelpText(b, tip);
+        b.Focusable = true;
+        b.FocusVisualStyle = FocusRing;
         Interaction.Press(b);
         b.Click += (_, _) => click();
         return b;
@@ -189,6 +219,7 @@ public static class K
             Style = accent ? FillStyle : GhostStyle, Padding = new Thickness(13, 6, 13, 6), Tag = new CornerRadius(10),
             Background = accent ? White : Card, Content = T(text, size, accent ? Ink : Fg, true)
         };
+        AutomationProperties.SetName(b, text);
         Interaction.Press(b);
         b.Click += (_, _) => click();
         return b;
@@ -203,8 +234,8 @@ public static class K
 
     public static Border CardBox(UIElement? child = null, double radius = 16, Thickness? pad = null) => new()
     {
-        Background = Surface, CornerRadius = new CornerRadius(Math.Max(radius, 16)), Padding = pad ?? new Thickness(13), Child = child,
-        BorderBrush = Stroke, BorderThickness = new Thickness(1)
+        Background = Surface, CornerRadius = new CornerRadius(Math.Max(radius, 12)), Padding = pad ?? new Thickness(16, 14, 16, 14), Child = child,
+        BorderBrush = CardStroke, BorderThickness = new Thickness(1)
     };
 
     public static GridLength GL(string s) =>

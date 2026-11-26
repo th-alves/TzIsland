@@ -1,3 +1,4 @@
+using System.Windows.Automation;
 using System.Windows.Interop;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
@@ -25,6 +26,9 @@ public sealed class IslandWindow : Window
     readonly Image _backdrop = new() { Stretch = Stretch.Fill, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };
     readonly Shapes.Rectangle _tint = new(), _sheen = new() { IsHitTestVisible = false };
     readonly Shapes.Path _outline = new() { IsHitTestVisible = false, StrokeThickness = 0.8 };
+    // Grão: textura fixa de 96×96 repetida a 3% — quebra o banding do preto e dá sensação de material.
+    static readonly Brush GrainBrush = MakeGrain();
+    readonly Shapes.Rectangle _grain = new() { IsHitTestVisible = false, Fill = GrainBrush };
     readonly Grid _mini = new(), _banner = new(), _exp = new();
     readonly Grid _pageHost = new();
     // Barra de seções vertical, na lateral direita (minimalista: só ícones, uma "lente" desliza atrás do ativo).
@@ -42,7 +46,7 @@ public sealed class IslandWindow : Window
         Width = LensW,
         Height = LensH,
         CornerRadius = new CornerRadius(9),
-        Background = K.Hex("#FF2B2B2F"),
+        Background = K.Raised,
         HorizontalAlignment = HorizontalAlignment.Center,
         VerticalAlignment = VerticalAlignment.Top,
         RenderTransformOrigin = new Point(0.5, 0.5),
@@ -52,9 +56,9 @@ public sealed class IslandWindow : Window
     readonly TranslateTransform _expShift = new();
     // Geometria reaproveitada no modo Flutuante: sem alocar um StreamGeometry novo por quadro.
     RectangleGeometry? _roundClip;
-    // Sombra externa: halo real desenhado FORA da silhueta. A região da janela é inflada por `ShadowPad`
-    // e o halo não rouba cliques: fora da ilha o WM_NCHITTEST devolve HTTRANSPARENT.
-    const double ShadowPad = 24, ShadowBlur = 22, ShadowDepth = 5;
+    // Sombra externa: halo real desenhado FORA da silhueta, dentro da janela transparente.
+    // O halo não rouba cliques: fora da ilha o WM_NCHITTEST devolve HTTRANSPARENT.
+    const double ShadowBlur = 22, ShadowDepth = 5;
     readonly Canvas _shadowStage = new() { IsHitTestVisible = false };
     readonly Border _shadowBox = new()
     {
@@ -214,7 +218,9 @@ public sealed class IslandWindow : Window
     };
     readonly DispatcherTimer _dwellT = new() { Interval = TimeSpan.FromMilliseconds(420) }, _scrollT = new() { Interval = TimeSpan.FromMilliseconds(16) };
 
-    readonly DispatcherTimer _hoverT = new(), _collapseT = new(), _bannerT = new(), _clockT = new() { Interval = TimeSpan.FromSeconds(1) }, _fsT = new() { Interval = TimeSpan.FromSeconds(2) };
+    // Um único tique lento (1 s) alimenta relógio recolhido, medidor de quadro e a checagem de tela cheia:
+    // eram três DispatcherTimers acordando a UI em instantes diferentes só para ler o relógio do sistema.
+    readonly DispatcherTimer _hoverT = new(), _collapseT = new(), _bannerT = new(), _tickT = new() { Interval = TimeSpan.FromSeconds(1) };
     DateTime _activity = DateTime.Now;
     Point _downPos; bool _mouseDown;
     bool _noExpand;
@@ -263,11 +269,9 @@ public sealed class IslandWindow : Window
             e.Reason is Microsoft.Win32.SessionSwitchReason.SessionLock
                 or Microsoft.Win32.SessionSwitchReason.ConsoleDisconnect
                 or Microsoft.Win32.SessionSwitchReason.RemoteDisconnect));
-        // Esc fecha a ilha (antes só o mouse; quem usa teclado ficava preso no painel).
-        PreviewKeyDown += (_, e) =>
-        {
-            if (e.Key == Key.Escape && _st == St.Expanded) { Collapse(); e.Handled = true; }
-        };
+        // Teclado: Esc fecha, Ctrl+K abre a paleta, Tab/setas trocam de página na barra lateral.
+        PreviewKeyDown += (_, e) => OnWindowKey(e);
+        Eco.Changed += () => Dispatcher.InvokeAsync(ApplyEco);
         Settings.ChangedKind += OnSettingsChanged;
         Settings.PreviewAnimation += () => Dispatcher.InvokeAsync(PreviewAnim, DispatcherPriority.Background);
         Hub.Banner += ShowBanner;
@@ -280,15 +284,36 @@ public sealed class IslandWindow : Window
         _collapseT.Tick += OnCollapseTick;
         _bannerT.Tick += (_, _) => { _bannerT.Stop(); if (_st == St.Banner && !_island.IsMouseOver) SetState(St.Collapsed); };
         _previewT.Tick += (_, _) => { _previewT.Stop(); if (!_island.IsMouseOver && _st == St.Expanded) Collapse(); };
-        _statsT.Tick += (_, _) => UpdateStats();
         _hudT.Tick += (_, _) => { _hudT.Stop(); FadeHud(false); };
         Svc.Downloads.Changed += () => Dispatcher.InvokeAsync(RefreshMini);
         Svc.Calendar.Changed += () => Dispatcher.InvokeAsync(RefreshMini);
         Hub.HeldChanged += () => Dispatcher.InvokeAsync(RefreshMini);
         Svc.Media.Changed += ApplyAccent;
-        _clockT.Tick += (_, _) => { if (_st == St.Collapsed) RefreshMini(); };
-        _fsT.Tick += (_, _) => CheckFullscreen();
-        _fsT.Start();
+        _tickT.Tick += (_, _) => OnSlowTick();
+        _tickT.Start();
+    }
+
+    /// <summary>Ruído cinza neutro gerado uma vez: repetido bem pequeno, vira o grão sutil dos materiais escuros.</summary>
+    static Brush MakeGrain()
+    {
+        const int n = 96;
+        var px = new byte[n * n * 4];
+        var rnd = new Random(7);
+        for (int i = 0; i < px.Length; i += 4)
+        {
+            byte v = (byte)rnd.Next(256);
+            px[i] = v; px[i + 1] = v; px[i + 2] = v; px[i + 3] = 255;
+        }
+        var bmp = new WriteableBitmap(n, n, 96, 96, PixelFormats.Pbgra32, null);
+        bmp.WritePixels(new Int32Rect(0, 0, n, n), px, n * 4, 0);
+        bmp.Freeze();
+        var brush = new ImageBrush(bmp)
+        {
+            TileMode = TileMode.Tile, Viewport = new Rect(0, 0, n, n), ViewportUnits = BrushMappingMode.Absolute,
+            Stretch = Stretch.None, Opacity = 0.03
+        };
+        brush.Freeze();
+        return brush;
     }
 
     // ---------------- UI construction ----------------
@@ -309,6 +334,7 @@ public sealed class IslandWindow : Window
         _layers.Children.Add(_backdrop);
         _layers.Children.Add(_tint);
         _layers.Children.Add(_sheen);
+        _layers.Children.Add(_grain);
         _layers.Children.Add(_mini);
         _layers.Children.Add(_banner);
         _layers.Children.Add(_exp);
@@ -394,6 +420,7 @@ public sealed class IslandWindow : Window
         _dragLayer.MouseLeftButtonUp += (_, e) => { e.Handled = true; EndDrag(false); };
         _dragLayer.LostMouseCapture += (_, _) => { if (_held != null && !_ending) EndDrag(true); };
         _exp.Children.Add(_dragLayer.At(colSpan: 2));
+        BuildPalette();
         // Interaction events
         _island.MouseEnter += (_, _) => { _collapseT.Stop(); if (_st == St.Collapsed && S.ExpandOnHover && !_noExpand) { _hoverT.Interval = TimeSpan.FromMilliseconds(S.HoverDelayMs); _hoverT.Start(); } };
         _island.MouseWheel += OnIslandWheel;
@@ -444,12 +471,19 @@ public sealed class IslandWindow : Window
         if (_src?.CompositionTarget != null) _src.CompositionTarget.BackgroundColor = Colors.Transparent;
         var m = new Native.MARGINS { L = -1, R = -1, T = -1, B = -1 };
         Native.DwmExtendFrameIntoClientArea(_hwnd, ref m);
-        int none = unchecked((int)0xFFFFFFFE), noRound = 1;
-        Native.DwmSetWindowAttribute(_hwnd, 34, ref none, 4);      // No Windows 11 border
-        Native.DwmSetWindowAttribute(_hwnd, 33, ref noRound, 4);   // No Windows 11 system rounding
+        SuppressFrame();
         _src?.AddHook(WndProc);
         RegisterHotkeys();
         try { Native.AddClipboardFormatListener(_hwnd); } catch (Exception clipErr) { Log.Write(clipErr); }
+    }
+
+    /// <summary>Sem moldura e sem arredondamento do Windows: a silhueta é desenhada pelo app.</summary>
+    void SuppressFrame()
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        int none = unchecked((int)0xFFFFFFFE), noRound = 1;
+        Native.DwmSetWindowAttribute(_hwnd, 34, ref none, 4);      // DWMWA_BORDER_COLOR = nenhuma borda
+        Native.DwmSetWindowAttribute(_hwnd, 33, ref noRound, 4);   // DWMWA_WINDOW_CORNER_PREFERENCE = sem arredondar
     }
 
     IntPtr WndProc(IntPtr hwnd, int msg, IntPtr w, IntPtr l, ref bool handled)
@@ -460,6 +494,7 @@ public sealed class IslandWindow : Window
             if (w.ToInt32() == 1) Toggle();
             else if (w.ToInt32() == 2) { OpenPage("dictation"); _ = Svc.Dictation.ToggleAsync(); }
             else if (w.ToInt32() == 3) ToggleStats();
+            else if (w.ToInt32() == 4) TogglePalette();
         }
         else if (msg == Native.WM_CLIPBOARDUPDATE) Svc.Clipboard.OnSystemUpdate();
         else if (msg == Native.WM_NCHITTEST)
@@ -487,8 +522,20 @@ public sealed class IslandWindow : Window
         if (_hwnd == IntPtr.Zero) return;
         Native.UnregisterHotKey(_hwnd, 1); Native.UnregisterHotKey(_hwnd, 2); Native.UnregisterHotKey(_hwnd, 3);
         Native.RegisterHotKey(_hwnd, 3, 0x0002 | 0x0004 | 0x4000, 0x4D);   // Ctrl+Shift+M: medidor de quadro
+        SyncPaletteHotkey();
         if (Native.TryParseHotkey(S.ToggleHotkey, out var m1, out var k1)) Native.RegisterHotKey(_hwnd, 1, m1 | 0x4000, k1);
         if (S.IsOn("dictation") && Native.TryParseHotkey(S.DictationHotkey, out var m2, out var k2)) Native.RegisterHotKey(_hwnd, 2, m2 | 0x4000, k2);
+    }
+
+    /// <summary>
+    /// Ctrl+K só é capturado com a ilha aberta: registrar globalmente roubaria o atalho de editores
+    /// e navegadores o tempo todo, numa app que fica sempre ligada.
+    /// </summary>
+    void SyncPaletteHotkey()
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        Native.UnregisterHotKey(_hwnd, 4);
+        if (_st == St.Expanded) Native.RegisterHotKey(_hwnd, 4, 0x0002 | 0x4000, 0x4B);   // Ctrl+K
     }
 
     protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi) { base.OnDpiChanged(oldDpi, newDpi); Place(); }
@@ -510,7 +557,6 @@ public sealed class IslandWindow : Window
             default: x = sc.Bounds.Left + (sc.Bounds.Width - wpx) / 2; break;
         }
         Native.SetWindowPos(_hwnd, IntPtr.Zero, x, y, 0, 0, Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
-        UpdateRegion();
     }
 
     void SaveDraggedPosition()
@@ -524,30 +570,14 @@ public sealed class IslandWindow : Window
         Settings.Apply();
     }
 
-    int _rgnL = -1, _rgnT = -1, _rgnR = -1, _rgnB = -1;
-
-    void UpdateRegion()
-    {
-        if (_hwnd == IntPtr.Zero) return;
-        double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
-        double w = Math.Max(1, _w.Value), h = Math.Max(1, _h.Value), left = (Width - w) / 2, top = _island.Margin.Top;
-        // O halo da sombra vive FORA da silhueta: a região cresce junto (senão o DWM corta o degradê).
-        int pad = S.WindowShadow && Floating ? (int)Math.Ceiling(ShadowPad * dpi) : 0;
-        int l = (int)Math.Floor(left * dpi) - pad, t = (int)Math.Floor(top * dpi) - pad;
-        int r = (int)Math.Ceiling((left + w) * dpi) + pad, b = (int)Math.Ceiling((top + h) * dpi) + pad;
-        l = Math.Max(0, l); t = Math.Max(0, t);
-        r = Math.Min((int)Math.Ceiling(Width * dpi), r); b = Math.Min((int)Math.Ceiling(Height * dpi), b);
-        if (r <= l || b <= t) return;                                     // região inválida (meio do overshoot): mantém a anterior
-        if (l == _rgnL && t == _rgnT && r == _rgnR && b == _rgnB) return;   // nada mudou: evita recriar a região a cada frame
-        _rgnL = l; _rgnT = t; _rgnR = r; _rgnB = b;
-        Native.SetWindowRgn(_hwnd, Native.CreateRectRgn(l, t, r, b), false);
-    }
+    // A janela não é mais recortada por SetWindowRgn: recortá-la fazia o Windows desenhar um contorno de 1 px
+    // em volta da região, visível como uma "caixa" em volta da pílula (aparecia depois de usar o modo Clássico).
+    // O halo da sombra continua sendo desenhado; o que está fora da ilha é click-through pelo WM_NCHITTEST.
 
     // ---------------- Settings synchronization ----------------
     IslandAnim _lastAnim = Settings.Current.IslandAnim;
     MotionIntensity _lastIntensity = Settings.Current.MotionIntensity;
     readonly DispatcherTimer _previewT = new() { Interval = TimeSpan.FromMilliseconds(2200) };
-    readonly DispatcherTimer _statsT = new() { Interval = TimeSpan.FromSeconds(1) };
     readonly TextBlock _statsText = K.T("", 9.5, K.Muted);
     readonly Border _statsBox = new()
     {
@@ -556,6 +586,191 @@ public sealed class IslandWindow : Window
         Background = K.Hex("#E6000000"), IsHitTestVisible = false
     };
     bool _statsOn;
+
+    // ---------------- Paleta de comandos (Ctrl+K) ----------------
+    // 13 módulos e dezenas de ações dependiam de saber onde clicar. Reaproveita o padrão de busca
+    // das Notas e vira a porta de entrada para o controle por teclado e por CLI.
+    sealed record PalCmd(string Title, string Hint, Action Run);
+    readonly Border _palette = new()
+    {
+        Visibility = Visibility.Collapsed, Width = 430, HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 26, 0, 0),
+        Background = K.Hex("#F5141417"), BorderBrush = K.StrokeHi, BorderThickness = new Thickness(1),
+        CornerRadius = new CornerRadius(16), Padding = new Thickness(12)
+    };
+    readonly TextBox _palQuery = K.Box("Digite um comando… (Ctrl+K)");
+    readonly StackPanel _palRows = new();
+    readonly List<PalCmd> _palCmds = new();
+    readonly List<PalCmd> _palShown = new();
+    int _palSel;
+
+    void BuildPalette()
+    {
+        _palQuery.FontSize = 13; _palQuery.Height = 34; _palQuery.Margin = new Thickness(0, 0, 0, 8);
+        AutomationProperties.SetName(_palQuery, "Buscar comando");
+        _palQuery.TextChanged += (_, _) => FilterPalette();
+        _palQuery.PreviewKeyDown += PaletteKeys;
+        var stack = new StackPanel();
+        stack.Children.Add(_palQuery);
+        stack.Children.Add(_palRows);
+        _palette.Child = stack;
+        _exp.Children.Add(_palette.At(colSpan: 2));
+    }
+
+    public void TogglePalette()
+    {
+        if (_palette.Visibility == Visibility.Visible) ClosePalette(); else OpenPalette();
+    }
+
+    void OpenPalette()
+    {
+        if (_st != St.Expanded) Expand();
+        EnableKeyboard();
+        FillPalette();
+        _palQuery.Text = "";
+        _palSel = 0;
+        FilterPalette();
+        _palette.Visibility = Visibility.Visible;
+        _collapseT.Stop();
+        Dispatcher.InvokeAsync(() => Keyboard.Focus(_palQuery), DispatcherPriority.Input);
+    }
+
+    void ClosePalette()
+    {
+        _palette.Visibility = Visibility.Collapsed;
+        _palRows.Children.Clear();
+    }
+
+    void FillPalette()
+    {
+        _palCmds.Clear();
+        foreach (var id in Modules.Order().Where(S.IsOn))
+        {
+            var pid = id;
+            _palCmds.Add(new("Ir para " + Modules.Title(pid), "Página", () => ShowPage(pid)));
+        }
+        _palCmds.Add(new(Svc.Focus.Pomo.Running ? "Pausar Pomodoro" : "Iniciar Pomodoro", "Foco", () => { Svc.Focus.PomoToggle(); ShowPage("focus"); }));
+        _palCmds.Add(new("Reiniciar Pomodoro", "Foco", () => Svc.Focus.PomoReset()));
+        _palCmds.Add(new("Iniciar temporizador de 25 min", "Foco", () => { Svc.Focus.TimerSet(25); Svc.Focus.Timer.Start(); ShowPage("focus"); }));
+        _palCmds.Add(new("Parar temporizador", "Foco", () => Svc.Focus.TimerReset()));
+        _palCmds.Add(new(Settings.Current.ManualDnd ? "Desligar Não perturbar" : "Ligar Não perturbar", "Notificações", () =>
+        {
+            Settings.Current.ManualDnd = !Settings.Current.ManualDnd;
+            Settings.Save();
+            Hub.EvaluateDnd();
+        }));
+        _palCmds.Add(new(Svc.Audio.Muted ? "Ativar som do sistema" : "Silenciar o sistema", "Som", () => Svc.Audio.Muted = !Svc.Audio.Muted));
+        _palCmds.Add(new("Volume em 40%", "Som", () => Svc.Audio.Volume = 0.4f));
+        _palCmds.Add(new("Trocar saída de áudio", "Som", () => ShowPage("mixer")));
+        _palCmds.Add(new("Colar o último item fixado", "Área de transferência", () =>
+        {
+            var it = Svc.Clipboard.Items.FirstOrDefault(x => x.Pinned) ?? Svc.Clipboard.Items.FirstOrDefault();
+            if (it == null) return;
+            if (Svc.Clipboard.Copy(it)) Hub.Notify("Área de transferência", "Copiado", it.Preview.Length > 60 ? it.Preview[..60] + "…" : it.Preview);
+        }));
+        _palCmds.Add(new("Editar cartões", "App", () => EnterEdit()));
+        _palCmds.Add(new("Verificar atualizações", "App", () => _ = Svc.Updates.CheckAsync(true)));
+        _palCmds.Add(new("Abrir Configurações", "App", OpenSettings));
+        _palCmds.Add(new("Recolher a ilha", "App", Collapse));
+    }
+
+    void FilterPalette()
+    {
+        string q = _palQuery.Text.Trim();
+        _palShown.Clear();
+        _palShown.AddRange(_palCmds.Where(c => q.Length == 0
+            || c.Title.Contains(q, StringComparison.OrdinalIgnoreCase)
+            || c.Hint.Contains(q, StringComparison.OrdinalIgnoreCase)).Take(8));
+        if (_palShown.Count == 0) _palSel = -1;
+        else _palSel = Math.Clamp(_palSel, 0, _palShown.Count - 1);
+        RenderPalette();
+    }
+
+    void RenderPalette()
+    {
+        _palRows.Children.Clear();
+        if (_palShown.Count == 0)
+        {
+            _palRows.Children.Add(K.T("Nenhum comando encontrado", 11.5, K.Muted).M(10, 8, 10, 8));
+            return;
+        }
+        for (int i = 0; i < _palShown.Count; i++)
+        {
+            int idx = i;
+            var cmd = _palShown[i];
+            var grid = K.Cols("*", "auto");
+            var title = K.T(cmd.Title, 12.5, K.Fg); title.VerticalAlignment = VerticalAlignment.Center;
+            grid.Children.Add(title);
+            var hint = K.T(cmd.Hint, 10.5, i == _palSel ? K.Accent : K.Muted); hint.VerticalAlignment = VerticalAlignment.Center;
+            hint.Margin = new Thickness(10, 0, 2, 0);
+            grid.Children.Add(hint.At(col: 1));
+            var b = new Button
+            {
+                Style = K.Ghost, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Padding = new Thickness(10, 8, 10, 8), Tag = new CornerRadius(9), Content = grid,
+                Background = i == _palSel ? K.Raised : K.Clear, Margin = new Thickness(0, 1, 0, 1)
+            };
+            AutomationProperties.SetName(b, cmd.Title);
+            b.Click += (_, _) => RunPalette(idx);
+            _palRows.Children.Add(b);
+        }
+    }
+
+    void PaletteKeys(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape) { ClosePalette(); e.Handled = true; }
+        else if (e.Key == Key.Down) { if (_palShown.Count > 0) _palSel = Math.Min(_palSel + 1, _palShown.Count - 1); RenderPalette(); e.Handled = true; }
+        else if (e.Key == Key.Up) { if (_palShown.Count > 0) _palSel = Math.Max(_palSel - 1, 0); RenderPalette(); e.Handled = true; }
+        else if (e.Key == Key.Enter && _palSel >= 0) { RunPalette(_palSel); e.Handled = true; }
+    }
+
+    void RunPalette(int i)
+    {
+        if (i < 0 || i >= _palShown.Count) return;
+        var cmd = _palShown[i];
+        ClosePalette();
+        cmd.Run();
+    }
+
+    /// <summary>Esc, Ctrl+K, Tab/setas na barra lateral. Enter/Espaço nos botões seguem o Button nativo.</summary>
+    void OnWindowKey(KeyEventArgs e)
+    {
+        if (_palette.Visibility == Visibility.Visible)
+        {
+            if (e.Key == Key.Escape) { ClosePalette(); e.Handled = true; }
+            return;                                        // o resto é tratado pela caixa de busca
+        }
+        if (e.Key == Key.K && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { TogglePalette(); e.Handled = true; return; }
+        if (e.Key == Key.Escape && _st == St.Expanded) { Collapse(); e.Handled = true; return; }
+        if (_st != St.Expanded) return;
+        if (e.Key is Key.Tab or Key.Down or Key.Up or Key.PageDown or Key.PageUp)
+        {
+            bool back = e.Key is Key.Up or Key.PageUp || e.Key == Key.Tab && (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+            StepPage(back ? -1 : 1);
+            e.Handled = true;
+        }
+    }
+
+    void StepPage(int delta)
+    {
+        var ids = Modules.Order().Where(S.IsOn).Where(id => _navBtns.ContainsKey(id)).ToList();
+        if (ids.Count == 0 || _pageId == null) return;
+        int i = ids.IndexOf(_pageId);
+        int j = ((i < 0 ? 0 : i) + delta + ids.Count) % ids.Count;
+        EnableKeyboard();
+        ShowPage(ids[j]);
+        if (_navBtns.TryGetValue(ids[j], out var b)) b.Focus();
+    }
+
+    /// <summary>Modo economia: tique mais espaçado, sem espectro/HUD (as animações continuam normais).</summary>
+    void ApplyEco()
+    {
+        _tickT.Interval = TimeSpan.FromSeconds(Eco.Active ? 4 : 1);
+        if (!Eco.Active) return;
+        _miniEq.Running = false;
+        _statsOn = false;
+        _statsBox.Visibility = Visibility.Collapsed;
+    }
 
     /// <summary>Abre a ilha sozinha e fecha depois de um instante, para mostrar o estilo de animação escolhido.</summary>
     void PreviewAnim()
@@ -602,6 +817,10 @@ public sealed class IslandWindow : Window
         if (S.Fullscreen != FullscreenMode.Hide) Visibility = Visibility.Visible;
         SyncMotionPause();
         _shadowStage.Visibility = S.WindowShadow ? Visibility.Visible : Visibility.Collapsed;
+        // Trocar o formato com a ilha parada não gera quadro nenhum (SetState sai cedo quando o estado é o mesmo),
+        // e o recorte/borda ficavam com a silhueta do estilo anterior: um contorno de notch sobrando em volta da pílula.
+        // Uma passada de geometria aqui reaplica clip, borda e região na hora.
+        Frame();
     }
 
     void ApplyLook()
@@ -867,6 +1086,8 @@ public sealed class IslandWindow : Window
         _carry.Children.Clear();          // portadores de uma transição anterior não sobrevivem a uma nova
         var prev = _st; _st = s;
         _phase = s == St.Expanded ? Phase.Entering : Phase.Leaving;
+        if (s != St.Expanded && _palette.Visibility == Visibility.Visible) ClosePalette();
+        SyncPaletteHotkey();
         SyncMotionPause();                                      // janela oculta não precisa de quadros
         if (!snap && prev != s) { if (s == St.Expanded) SoundFx.Open(); else if (prev == St.Expanded) SoundFx.Close(); }
         var (w, h, r) = Target(s);
@@ -940,11 +1161,9 @@ public sealed class IslandWindow : Window
         }
         _exp.IsHitTestVisible = exp;
         _mini.IsHitTestVisible = s == St.Collapsed;
-        // Relógio e respiração do LED só existem enquanto a pílula está visível.
-        if (s == St.Collapsed) { if (!_clockT.IsEnabled) _clockT.Start(); }
-        else
+        // Respiração do LED só existe enquanto a pílula está visível (o tique lento cuida do relógio).
+        if (s != St.Collapsed)
         {
-            _clockT.Stop();
             _ledIdle.StopPulse(); _ledActive.StopPulse();
             _ledPulsing = false;
         }
@@ -966,12 +1185,8 @@ public sealed class IslandWindow : Window
         if (_asleep == asleep) return;
         _asleep = asleep;
         SyncMotionPause();
-        if (asleep) { _clockT.Stop(); _fsT.Stop(); _miniEq.Running = false; }
-        else
-        {
-            _fsT.Start();
-            if (_st == St.Collapsed) { _clockT.Start(); RefreshMini(); }
-        }
+        if (asleep) { _tickT.Stop(); _miniEq.Running = false; }
+        else { _tickT.Start(); if (_st == St.Collapsed) RefreshMini(); CheckFullscreen(); }
     }
 
     // ---------------- Verificação visual (--shot) ----------------
@@ -1160,7 +1375,8 @@ public sealed class IslandWindow : Window
         return null;
     }
 
-    void HighlightNav(string id) { if (_navBtns.TryGetValue(id, out var b)) b.Background = K.Hex("#2AFFFFFF"); }
+    // Tile opaco: cinza translúcido clareava demais sobre o vidro claro e o ícone branco sumia.
+    void HighlightNav(string id) { if (_navBtns.TryGetValue(id, out var b)) b.Background = K.Raised; }
     void ClearNavHighlight() { foreach (var b in _navBtns.Values) b.ClearValue(Control.BackgroundProperty); }
 
     void OnDwell()
@@ -1292,7 +1508,6 @@ public sealed class IslandWindow : Window
             _shadowBox.Width = w; _shadowBox.Height = h;
             _shadowBox.CornerRadius = new CornerRadius(rb);
         }
-        UpdateRegion();
     }
 
     // ---------------- Real backdrop blur capture ----------------
@@ -1316,9 +1531,18 @@ public sealed class IslandWindow : Window
             double padX = S.BlurAmount, padY = S.BlurAmount;
             int wpx = (int)((S.ExpandedWidth + padX * 2) * dpi), hpx = (int)((S.ExpandedHeight + padY) * dpi);
             int x = rc.Left + (int)((rc.Right - rc.Left - wpx) / 2.0), y = rc.Top + (int)(_island.Margin.Top * dpi);
-            using var bmp = new System.Drawing.Bitmap(wpx, hpx);
-            using (var gr = System.Drawing.Graphics.FromImage(bmp))
+            // O fundo é borrado e fica a 48–82% de opacidade: metade da resolução é indistinguível em tela
+            // e economiza metade da RAM do bitmap, que fica residente enquanto a ilha está aberta.
+            using var full = new System.Drawing.Bitmap(Math.Max(1, wpx), Math.Max(1, hpx));
+            using (var gr = System.Drawing.Graphics.FromImage(full))
                 gr.CopyFromScreen(x, y, 0, 0, new System.Drawing.Size(wpx, hpx));
+            using var bmp = new System.Drawing.Bitmap(Math.Max(1, wpx / 2), Math.Max(1, hpx / 2));
+            using (var gr = System.Drawing.Graphics.FromImage(bmp))
+            {
+                gr.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
+                gr.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                gr.DrawImage(full, new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height));
+            }
             IntPtr hb = bmp.GetHbitmap();
             try
             {
@@ -1705,7 +1929,7 @@ public sealed class IslandWindow : Window
         if (!_ledPulsing && S.Animations && _st == St.Collapsed)
         {
             _ledPulsing = true;
-            _ledIdle.Pulse(1700);     // ocioso: respiração lenta
+            _ledIdle.StopPulse();     // ocioso: ponto neutro e imóvel (em repouso a ilha não respira)
             _ledActive.Pulse(950);    // ativo: um pouco mais viva
         }
         if (_ledOn == active) return;
@@ -1721,12 +1945,23 @@ public sealed class IslandWindow : Window
         MotionEngine.To(_ledActive, UIElement.OpacityProperty, active ? 1 : 0, Tz.Springs.Settle);
     }
 
+    int _slowTick;
+
+    /// <summary>Um tique por segundo para tudo que só precisa da ordem dos segundos.</summary>
+    void OnSlowTick()
+    {
+        Perf.Sample();
+        if (_st == St.Collapsed) RefreshMini();
+        if (_statsOn) UpdateStats();
+        if (++_slowTick % 2 == 0) CheckFullscreen();      // tela cheia: a cada 2 s, como antes
+    }
+
     // ---------------- Medidor de quadro (Etapa 0) ----------------
     void ToggleStats()
     {
         _statsOn = !_statsOn;
         _statsBox.Visibility = _statsOn ? Visibility.Visible : Visibility.Collapsed;
-        if (_statsOn) { UpdateStats(); _statsT.Start(); } else _statsT.Stop();
+        if (_statsOn) UpdateStats();
     }
 
     void UpdateStats() => _statsText.Text = MotionStats.Line();

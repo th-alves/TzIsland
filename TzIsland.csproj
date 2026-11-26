@@ -10,7 +10,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>TzIsland</AssemblyName>
     <RootNamespace>TzIsland</RootNamespace>
-    <Version>2.9.0</Version>
+    <Version>3.1.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\TzIsland.ico</ApplicationIcon>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -35,6 +35,9 @@
     <!-- Projeto de testes é separado: não entra no app (senão o glob padrão compila os testes aqui dentro). -->
     <Compile Remove="Tests\**" />
     <None Remove="Tests\**" />
+    <!-- Regras do Taskless (.taskless/) guardam fixtures em C#: são casos de teste, não código do app. -->
+    <Compile Remove=".taskless\**" />
+    <None Remove=".taskless\**" />
   </ItemGroup>
 
   <ItemGroup>

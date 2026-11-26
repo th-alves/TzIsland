@@ -26,6 +26,10 @@ static class Program
         Radial();
         BackupRoundTrip();
         BackupRejectsTraversal();
+        BackupManifest();
+        CalendarRecurrence();
+        LogRotation();
+        Durations();
         DiagnosticsGroups();
         Console.WriteLine($"\n{_pass} passaram, {_fail} falharam");
         return _fail == 0 ? 0 : 1;
@@ -138,6 +142,96 @@ static class Program
         Check("importa só o arquivo simples", n == 1, $"n={n}");
         Directory.Delete(target, true);
         try { File.Delete(zip); } catch { }
+    }
+
+    static void BackupManifest()
+    {
+        Console.WriteLine("backup: manifest");
+        string a = TempDir(), b = TempDir();
+        Directory.CreateDirectory(a); Directory.CreateDirectory(b);
+        File.WriteAllText(Path.Combine(a, "notes.json"), "n");
+        string zip = TempDir() + ".zip";
+        Backup.ExportTo(zip, a);
+
+        using (var z = ZipFile.OpenRead(zip))
+            Check("todo backup tem manifest", z.GetEntry("manifest.json") != null);
+        int n = Backup.ImportFrom(zip, b);
+        Check("manifest não entra como dado", n == 1, $"n={n}");
+        Check("importação informa o que leu", !string.IsNullOrEmpty(Backup.LastMessage));
+
+        // Esquema mais novo deve recusar tudo (importação parcial silenciosa é pior que nenhuma).
+        string newer = TempDir() + ".zip";
+        using (var z = ZipFile.Open(newer, ZipArchiveMode.Create))
+        {
+            using (var w = new StreamWriter(z.CreateEntry("manifest.json").Open()))
+                w.Write("{\"Schema\":999,\"App\":\"TzIsland\",\"Version\":\"9\",\"Files\":1,\"Names\":[]}");
+            using (var w = new StreamWriter(z.CreateEntry("notes.json").Open())) w.Write("novo");
+        }
+        string c = TempDir(); Directory.CreateDirectory(c);
+        Check("esquema mais novo é recusado", Backup.ImportFrom(newer, c) == 0);
+        Check("nada foi sobrescrito", !File.Exists(Path.Combine(c, "notes.json")));
+        Directory.Delete(a, true); Directory.Delete(b, true); Directory.Delete(c, true);
+        try { File.Delete(zip); File.Delete(newer); } catch { }
+    }
+
+    static string Ics(string body) => "BEGIN:VCALENDAR\r\n" + body + "END:VCALENDAR\r\n";
+
+    static void CalendarRecurrence()
+    {
+        Console.WriteLine("agenda: recorrência e fuso");
+        var weekly = Ics("BEGIN:VEVENT\r\nUID:w1\r\nSUMMARY:Semanal\r\nDTSTART:20260302T090000\r\nDTEND:20260302T100000\r\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR\r\nEND:VEVENT\r\n");
+        var a = CalendarService.ParseIcs(weekly, "t", new DateTime(2026, 3, 2), new DateTime(2026, 3, 9));
+        Check("semanal com BYDAY gera 3 ocorrências", a.Count == 3, $"n={a.Count}");
+        Check("horário preservado", a.All(e => e.Start.Hour == 9 && e.End.Hour == 10));
+
+        var counted = Ics("BEGIN:VEVENT\r\nUID:c1\r\nDTSTART:20260302T090000\r\nRRULE:FREQ=DAILY;COUNT=2\r\nEND:VEVENT\r\n");
+        Check("COUNT limita as ocorrências", CalendarService.ParseIcs(counted, "t", new DateTime(2026, 3, 1), new DateTime(2026, 3, 20)).Count == 2);
+
+        var withEx = Ics("BEGIN:VEVENT\r\nUID:x1\r\nDTSTART:20260302T090000\r\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR\r\nEXDATE:20260304T090000\r\nEND:VEVENT\r\n");
+        Check("EXDATE remove a ocorrência", CalendarService.ParseIcs(withEx, "t", new DateTime(2026, 3, 2), new DateTime(2026, 3, 7)).Count == 2);
+
+        var moved = Ics("BEGIN:VEVENT\r\nUID:r1\r\nDTSTART:20260302T090000\r\nDTEND:20260302T093000\r\nRRULE:FREQ=WEEKLY\r\nEND:VEVENT\r\n"
+            + "BEGIN:VEVENT\r\nUID:r1\r\nRECURRENCE-ID:20260309T090000\r\nDTSTART:20260309T140000\r\nDTEND:20260309T143000\r\nEND:VEVENT\r\n");
+        var m = CalendarService.ParseIcs(moved, "t", new DateTime(2026, 3, 2), new DateTime(2026, 3, 10));
+        Check("remarcação substitui a ocorrência", m.Count == 2, $"n={m.Count}");
+        Check("remarcação muda o horário", m.Any(e => e.Start.Hour == 14 && e.Start.Day == 9));
+
+        bool iana = true;
+        try { TimeZoneInfo.FindSystemTimeZoneById("America/Sao_Paulo"); } catch { iana = false; }
+        if (iana)
+        {
+            var tz = Ics("BEGIN:VEVENT\r\nUID:z1\r\nDTSTART;TZID=America/Sao_Paulo:20260101T090000\r\nEND:VEVENT\r\n");
+            var e = CalendarService.ParseIcs(tz, "t", new DateTime(2025, 12, 31), new DateTime(2026, 1, 3));
+            var expected = TimeZoneInfo.ConvertTimeFromUtc(new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc), TimeZoneInfo.Local);
+            Check("TZID converte para o fuso local", e.Count == 1 && Math.Abs((e[0].Start - expected).TotalMinutes) < 1, e.Count == 1 ? e[0].Start.ToString("s") : "sem evento");
+        }
+        else Console.WriteLine("  skip TZID (runtime sem fusos IANA)");
+    }
+
+    static void LogRotation()
+    {
+        Console.WriteLine("log: rotação");
+        string dir = TempDir(); Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, "log.txt");
+        File.WriteAllText(path, "a");
+        Log.Rotate(path);
+        File.WriteAllText(path, "b");
+        Log.Rotate(path);
+        Check("vira log.1.txt", File.Exists(path + ".1"));
+        Check("mantém no máximo dois arquivos girados", File.Exists(path + ".2") && !File.Exists(path + ".3"));
+        Check("o arquivo atual foi movido, não apagado", !File.Exists(path));
+        Directory.Delete(dir, true);
+    }
+
+    static void Durations()
+    {
+        Console.WriteLine("CLI: durações");
+        bool ok;
+        ok = Cli.TryDuration("25m", out var a); Check("25m", ok && a == 1500, $"{a}");
+        ok = Cli.TryDuration("1h30m", out var b); Check("1h30m", ok && b == 5400, $"{b}");
+        ok = Cli.TryDuration("90s", out var c); Check("90s", ok && c == 90, $"{c}");
+        ok = Cli.TryDuration("45", out var d); Check("45 (minutos)", ok && d == 2700, $"{d}");
+        Check("texto inválido", !Cli.TryDuration("abc", out _));
     }
 
     static void DiagnosticsGroups()

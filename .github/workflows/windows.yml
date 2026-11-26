@@ -1,0 +1,26 @@
+name: Windows
+
+# O projeto nasceu "validado só por sintaxe, nada executado em Windows". Este job roda em todo push
+# o que os testes de núcleo (Tests/, runner próprio) cobrem: molas, geometria, backup, agenda e diagnóstico.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build
+        run: dotnet build -c Release
+
+      - name: Tests
+        run: dotnet run --project Tests -c Release

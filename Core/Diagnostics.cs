@@ -65,7 +65,8 @@ public static class Diagnostics
         sb.AppendLine($"estilo {s.Style}/{s.Look} · animação {s.IslandAnim}/{s.MotionIntensity} · sombra {s.WindowShadow}");
         sb.AppendLine($"tamanhos {s.ExpandedWidth:0}x{s.ExpandedHeight:0} / {s.CollapsedWidth:0}x{s.CollapsedHeight:0} · módulos {Modules.All.Count(m => s.IsOn(m.Id))}/{Modules.All.Length}");
         sb.AppendLine(MotionStats.Line());
-        sb.AppendLine($"tracks ativas {MotionEngine.ActiveCount}");
+        sb.AppendLine(Perf.Line());
+        sb.AppendLine($"tracks ativas {MotionEngine.ActiveCount}" + (Eco.Active ? $" · economia ligada ({Eco.Reason})" : ""));
         sb.AppendLine();
         sb.AppendLine("— erros agrupados —");
         var top = Top(10);

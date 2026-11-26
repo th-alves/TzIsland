@@ -128,7 +128,7 @@ public sealed class AmbiencePage : PageBase
         _stop.Click += (_, _) => A.StopAll();
         mix.Children.Add(_stop);
 
-        var card = FK.Card(K.Scroll(mix), 20); card.Padding = new Thickness(15, 13, 12, 12);
+        var card = FK.Card(K.Scroll(mix), 20); card.Padding = new Thickness(16, 14, 14, 14);
         body.Children.Add(card.At(col: 1));
         Root.Children.Add(body.At(row: 1));
 

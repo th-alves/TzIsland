@@ -109,9 +109,10 @@ Todos os itens abaixo precisam ser testados por você no primeiro `dotnet run`; 
 - ✅ **Atualização pelo GitHub:** verifica os Releases de th-alves/TzIsland (a cada N horas), avisa na ilha e, ao tocar no banner, baixa o `TzIsland-Setup.exe` do Release e atualiza sozinho. Configurações → Comportamento → Atualizações
 - ⚠️ Validação: sintaxe de todos os arquivos conferida com Roslyn; **compilação WPF e execução não foram feitas** (sem Windows aqui). Rode `dotnet build` e me mande qualquer erro
 ## Pendente
-- ⏳ Empacotamento MSIX (para notificações do Windows)
+- ⏳ Decisão de distribuição: Velopack (atual) vs MSIX — análise em docs/DISTRIBUICAO.md; o MSIX continua necessário para notificações de outros apps
 - ⏳ Reordenar/ocultar ícones da barra inferior por arrastar
-- ⏳ Testes automatizados
+- ⏳ i18n (pt-BR literal inline; extrair para .resx quando inglês entrar no escopo)
+- ⏳ Acessibilidade: nomes e foco já aplicados nos ícones; falta varrer páginas internas
 
 ## Etapa 14 — Correções e organização (v2.4.1 / v2.4.2)
 - ✅ **Temporizador com segundos:** role o mouse sobre os minutos ou sobre os segundos para ajustar (Shift = de 5 em 5). A dica fica abaixo dos números
@@ -173,3 +174,41 @@ Todos os itens abaixo precisam ser testados por você no primeiro `dotnet run`; 
 - ✅ **Verificação visual por PNG:** `TzIsland.exe --shot pasta\ [--state collapsed|banner|expanded] [--page media] [--scale 2] [--style classic|floating]` renderiza a ilha sem animar e sem passar pelo mutex/bandeja/serviços. Primeira validação real feita com ele: silhueta do notch (ombros côncavos), halo da sombra no Flutuante, borda fina, lente da barra e as três páginas conferidas.
 - ✅ **Esc fecha a ilha expandida** (antes só o mouse).
 - ⏳ Fora desta etapa: paleta de comandos (Ctrl+K), MSIX, assinatura de código, OSD nativo de volume/brilho, i18n, API local para scripts e acessibilidade completa por teclado.
+
+## Etapa 22 — Redesign "Cupertino Dark" (v3.0 visual)
+- ✅ **Tokens de superfície:** `K.Surface` virou gradiente vertical (`#19` → `#0E`) em vez de cor chapada, com `K.Raised` (hover/controle) e `K.Knob` (item selecionado). A borda passou de cinza opaco (`#1D1D20`) para **branco translúcido** (`#14FFFFFF` / `#2EFFFFFF`), que é o que lê como "material" em vez de contorno de dashboard.
+- ✅ **Acento azul de sistema:** `K.Accent`/`AccentGradient` agora são `#0A84FF` → `#0071E3`. O branco ficou reservado para a ação primária (pílula "Iniciar"); verde/vermelho/laranja só para estado. Sliders de volume e barras de progresso voltaram a ser **brancos** (o azul ficou só onde indica seleção/estado: controles das Configurações e ícone ativo da barra lateral).
+- ✅ **Tipografia sem caixa alta:** `K.Cap` deixou de aplicar `ToUpperInvariant` + haircut de tracking e virou rótulo de 11 px em caixa normal. Isso muda todos os cabeçalhos de cartão de uma vez (efeito "developer" → "app de sistema"). `FK.Header`, Inbox e Configurações seguiram o mesmo padrão.
+- ✅ **Contraste:** `K.Faint` subiu de `#6E6E73` (~3,8:1) para `#8E8E93`; `K.Dim` para `#B4B4BA`. Atenção: sobre **Liquid Glass claro** textos em `Faint/Muted` somem — rótulos de cabeçalho continuam em `Muted`.
+- ✅ **Cartões:** `FK.Card`/`K.CardBox` com raio/padding padronizados (14/16/18/20 + 16,14) e borda hairline translúcida.
+- ✅ **Configurações estilo macOS:** seções sem bolinha e sem caixa alta, linhas com 44 px de altura e divisor interno, chips de escolha com `K.Knob` em vez de branco puro, sidebar com item ativo em cinza `Raised` + ícone azul, fundo `K.Bg`.
+- ✅ **Ilha:** grão procedural de 96×96 repetido a 3% (`ImageBrush` tiled) por cima do tint, quebrando o banding do preto. LED de repouso ficou **estático** (sem respiração; só o estado ativo pulsa). Destaque ativo da barra lateral virou tile **opaco** (`Raised`) — antes era branco a 16%, que clareava sobre o vidro e apagava o ícone branco.
+- ✅ **Ícones:** emoji do clima substituído por ícones vetoriais de traço (`sun`, `partly`, `cloud`, `fog`, `drizzle`, `rain`, `snow`, `storm`) em `WeatherService.Icon`. Nenhum emoji colorido na interface.
+- ✅ **Espaçamento:** padding dos cartões do Início e das páginas com cartão alinhado em 16/14; a grade do Início manteve 148/124 de altura para a 3ª linha continuar aparecendo na rolagem.
+- ⚠️ **Backdrop nativo não aplicável:** a janela é `AllowsTransparency=false` com região recortada, então Acrylic/Mica do DWM não compõe. O vidro continua sendo a captura desfocada; o ganho veio do grão + composição.
+- 🐞 **Borda sobrando ao trocar Clássico → Flutuante:** com a ilha parada, `SetState` sai cedo (mesmo estado) e nenhum quadro rodava depois de `ApplySettings`, então o recorte e a `_outline` ficavam com a silhueta do notch desenhada em volta da pílula. `ApplySettings` agora reaplica a geometria (`Frame()`) na hora.
+- 🐞 **"Cancelar" espremido no Temporizador:** o botão dividia a linha com "Pausar" em colunas proporcionais e cortava o texto. Virou um alvo redondo de 32 px com ✕ (a coluna anima em pixels, não em estrelas), e a pílula principal ficou com a largura restante.
+- ✅ Verificado com `--shot` (home, focus, media, system, settings, collapsed) + `dotnet build` 0 erros. Não há teste automatizado de pixel: mudanças de cor/raio precisam de uma olhada rodando.
+
+## Etapa 23 — Custo em repouso (v3.1 de desempenho)
+- ❌ **Teto de quadros (desfeito):** a tentativa de acumular o vsync em passos de 13,5 ms foi revertida — nos monitores de 120/144 Hz ela dava um passo a cada dois quadros e a animação passou a parecer travada. `MotionHost.OnRender` voltou a dar exatamente um passo por quadro entregue pelo vsync, com o `dt` real.
+- ✅ **Captura do vidro pela metade:** `CaptureBackdrop` copia a tela e reduz para 50% antes de virar `_backdrop` (metade da RAM do bitmap residente, indistinguível atrás do desfoque e da opacidade).
+- ✅ **Um tique por segundo:** `IslandWindow` trocou `_clockT` (1 s), `_statsT` (1 s) e `_fsT` (2 s) por um único `_tickT` → `OnSlowTick()`: relógio recolhido, medidor de quadro e checagem de tela cheia (a cada 2 tiques). O tique para junto no sono/sessão bloqueada.
+- ✅ **Microfone sob demanda:** `AudioService` só liga o `DispatcherTimer` de 4 s quando `MonitorMicrophone` está ligado (e religa/desliga em `Settings.Changed`), em vez de acordar 15×/min para sair cedo.
+- ✅ **Fixadas da área de transferência:** o PNG fixado é decodificado em 1024 px para a prévia (o arquivo em disco continua no tamanho original) — antes cada item carregava o bitmap inteiro na inicialização.
+- ⚠️ **Não medido:** as mudanças são de custo estrutural (quadros, wakes, bitmaps). Use `Ctrl+Shift+M` antes/depois para comparar p50/p95; nenhuma captura de CPU/RAM foi feita nesta etapa. *(Medido na Etapa 24: ver docs/PERF.md.)*
+
+## Etapa 24 — v3.1 fechada: versão, medição, CI, agenda, teclado, paleta, CLI e dados (v3.1.0)
+- ✅ **Versão:** `.csproj` passou de 2.9.0 para **3.1.0** — o Velopack empacota essa versão, e o Diagnóstico/Sobre mostram o valor real. Sem isso, quem já tinha 2.9.0 nunca receberia a atualização.
+- ✅ **Baseline medido e guarda de regressão:** `--bench N [--expanded]` sobe o app completo e imprime CPU do processo, RAM privada e p95 de quadro (também em `bench.txt` e no cartão Diagnóstico). Medido em 26/11/2026: **recolhido 0,5% CPU / 96 MB / p95 7,5 ms** · **expandido 2,2% / 107 MB / 7,4 ms**. Limites de regressão em **docs/PERF.md** (+0,5 p.p. de CPU, +10 MB, +1,5 ms de p95).
+- ✅ **CI no Windows:** `.github/workflows/windows.yml` roda `dotnet build` e `dotnet run --project Tests` em `windows-latest` a cada push/PR. Os testes saíram de 26 para **46** casos (agenda, manifest de backup, rotação de log, durações da CLI).
+- ✅ **Agenda com RRULE e TZID:** DAILY/WEEKLY/MONTHLY/YEARLY com INTERVAL, COUNT, UNTIL e BYDAY; `EXDATE` remove ocorrências; `RECURRENCE-ID` substitui a ocorrência remarcada (com a duração herdada do mestre); `TZID` converte da zona do calendário para a local. Expansão em janela de 90 dias com pulo direto para perto de "agora" (um diário de 2015 não custa milhares de iterações).
+- ✅ **Teclado e acessibilidade (fatia da barra):** `Tab`/`Shift+Tab` e ↑/↓ trocam de página na barra lateral, com anel de foco visível; `Enter`/`Espaço` ativam o botão focado; `AutomationProperties.Name` em todos os botões só de ícone (a barra, a engrenagem e os controles criados por `K.IconBtn`).
+- ✅ **Paleta de comandos (Ctrl+K):** busca sobre páginas e ações (Pomodoro, timer de 25 min, Não perturbar, mudo/volume, trocar saída de áudio, colar o último fixado, editar cartões, atualizar, configurações, recolher). ↑/↓/Enter/Esc. O atalho só é capturado com a ilha aberta (registrar Ctrl+K global roubaria o atalho de editores).
+- ✅ **API local / CLI:** `--timer 25m`, `--dnd on|off|toggle`, `--volume 40|+5|-5`, `--mute`, `--page media` e `--media play|pause|next|prev|toggle`, pelo pipe nomeado já existente. Relativo de volume é resolvido na instância principal.
+- ✅ **Proteção dos dados:** backup agora tem **manifest** (esquema, versão, data, arquivos) e **recusa** um backup de esquema mais novo em vez de importar pela metade; **backup automático diário** em `backups\` mantendo os 7 últimos; fixados da área de transferência (índice e imagens) gravados com **DPAPI CurrentUser** (`clipboard.bin`, PNG cifrado) com migração do formato em claro.
+- ✅ **Log com rotação:** ~1 MB, mantendo `log.txt` + `log.1.txt` + `log.2.txt`; o tamanho é rastreado em memória em vez de reler o arquivo a cada evento.
+- ✅ **Modo economia automático:** em bateria abaixo de 20% ou com a economia do Windows, o tique passa de 1 s para 4 s, espectro/HUD param e clima/calendário são suspensos até voltar à tomada. Nenhuma animação muda.
+- ✅ **Decisão de distribuição documentada:** **docs/DISTRIBUICAO.md** recomenda manter o Velopack agora e migrar para MSIX de uma vez se o Inbox do Windows virar prioridade (não manter os dois).
+- ⏳ **Fora desta rodada:** i18n (extração para `.resx`), acessibilidade das páginas internas e MSIX.
+- ⚠️ **Verificado:** `dotnet build` 0 erros, 46/46 testes, `--bench` recolhido e expandido. A paleta, o foco por teclado e o anel de foco **não foram inspecionados visualmente** nesta rodada.

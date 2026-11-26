@@ -5,6 +5,7 @@ public partial class App : Application
     Mutex? _mutex;
     System.Windows.Forms.NotifyIcon? _tray;
     internal bool RestartForUpdate;   // o app está saindo para o Velopack aplicar a atualização
+    int _bench;                       // segundos de medição (--bench); 0 = execução normal
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -15,16 +16,23 @@ public partial class App : Application
         // Harness de verificação visual (dev): não passa pelo mutex/bandeja/serviços.
         if (Shot.Parse(e.Args) is Shot.Args shot) { RunShot(shot, e.Args); return; }
 
+        // Medição de custo (dev): roda o app de verdade por N segundos e imprime CPU/RAM/p95.
+        int bi = Array.IndexOf(e.Args, "--bench");
+        if (bi >= 0 && bi + 1 < e.Args.Length && int.TryParse(e.Args[bi + 1], out var secs)) _bench = Math.Clamp(secs, 1, 600);
+
         var cli = Cli.Parse(e.Args);
 
-        _mutex = new Mutex(true, "TzIsland.SingleInstance", out bool first);
-        if (!first)
+        if (_bench == 0)
         {
-            if (cli != null) Ipc.Send(cli);   // repassa --notify/--agent para a instância principal
-            Shutdown();
-            return;
+            _mutex = new Mutex(true, "TzIsland.SingleInstance", out bool first);
+            if (!first)
+            {
+                if (cli != null) Ipc.Send(cli);   // repassa --notify/--agent para a instância principal
+                Shutdown();
+                return;
+            }
+            if (cli is { Type: "agent" }) { Shutdown(); return; }   // hooks não devem iniciar o app sozinhos
         }
-        if (cli is { Type: "agent" }) { Shutdown(); return; }   // hooks não devem iniciar o app sozinhos
 
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
         DispatcherUnhandledException += (_, ex) => { Log.Write(ex.Exception); ex.Handled = true; };
@@ -39,6 +47,32 @@ public partial class App : Application
         SetupTray();
         if (Settings.Current.StartWithWindows != Autostart.IsOn()) Autostart.Set(Settings.Current.StartWithWindows);
         if (cli != null) Hub.HandleIpc(cli);
+        // Proteção contra esquecimento: um zip por dia, sem bloquear a abertura.
+        Task.Run(() => Backup.AutoBackupIfDue());
+        if (_bench > 0) StartBench(e.Args.Contains("--expanded"));
+    }
+
+    /// <summary>
+    /// Modo de medição: o app sobe completo (serviços, ilha, tique) e depois de N segundos imprime
+    /// CPU médio do processo, RAM privada e p95 de quadro em stdout e em bench.txt. É a régua de
+    /// qualquer decisão de desempenho — sem depender de alguém olhar a tela.
+    /// </summary>
+    void StartBench(bool expanded)
+    {
+        Perf.AttachConsole();
+        Perf.Prime();
+        if (expanded) IslandWindow.Instance?.OpenPage("home");
+        var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(_bench) };
+        t.Tick += (_, _) =>
+        {
+            t.Stop();
+            Perf.Sample();
+            string line = $"bench {_bench}s{(expanded ? " (expandido)" : " (recolhido)")} · {Perf.Line()} · p50 {MotionStats.Percentile(0.5):0.0} ms · quadros {MotionStats.Frames} (longos {MotionStats.LongFrames})";
+            try { Console.WriteLine(line); } catch { }
+            try { File.WriteAllText(Path.Combine(Settings.DataDir, "bench.txt"), line + Environment.NewLine); } catch (Exception ex) { Log.Write(ex); }
+            Shutdown();
+        };
+        t.Start();
     }
 
     /// <summary>Renderiza a ilha em PNG no estado pedido e encerra (ver Tools/Shot.cs).</summary>
@@ -91,6 +125,7 @@ public partial class App : Application
     {
         Autostart.Set(Settings.Current.StartWithWindows);
         if (_tray != null) _tray.Visible = Settings.Current.ShowTrayIcon;
+        Eco.Evaluate();
     }
 
     void SetupTray()

@@ -100,6 +100,12 @@ public static class Ico
         ["plus"] = "M12 5 v14 M5 12 h14",
         ["check-circle"] = "M12 22 a10 10 0 1 0 0 -20 a10 10 0 0 0 0 20 z M8 12.5 l2.7 2.7 L16 9.5",
         ["bell"] = "M6 8 a6 6 0 0 1 12 0 c0 7 3 9 3 9 H3 s3 -2 3 -9 M10.3 21 a1.94 1.94 0 0 0 3.4 0",
+        // ---- Clima (traço único, no lugar dos emojis coloridos)
+        ["partly"] = "M12 2 v2 M5.2 5.2 l1.4 1.4 M2 12 h2 M19 5.2 l-1.4 1.4 M17.5 19 H9 a7 7 0 1 1 6.71 -9 h1.79 a4.5 4.5 0 1 1 0 9 z",
+        ["fog"] = "M4 14.9 A7 7 0 1 1 15.7 8 h1.8 a4.5 4.5 0 0 1 2.5 8.2 M16 17 H7 M17 21 H9",
+        ["drizzle"] = "M20 16.6 A5 5 0 0 0 18 7 h-1.26 A8 8 0 1 0 4 15.25 M8 14 v.01 M12 15 v.01 M16 16 v.01",
+        ["snow"] = "M4 14.9 A7 7 0 1 1 15.7 8 h1.8 a4.5 4.5 0 0 1 2.5 8.2 M8 15 h.01 M8 19 h.01 M12 17 h.01 M12 21 h.01 M16 15 h.01 M16 19 h.01",
+        ["storm"] = "M6 16.3 A7 7 0 1 1 15.7 8 h1.8 a4.5 4.5 0 0 1 2.5 8.2 M13 12 l-3 5 h4 l-3 5",
     };
 
     public static string Path(string id) => D.TryGetValue(id, out var d) ? d : D["music"];

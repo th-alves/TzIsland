@@ -33,6 +33,17 @@ Para desligar tudo: Configurações > Aparência > Animações.
     TzIsland.exe --agent claude --state working|needs_input|done|idle --message "..." [--progress 40]
                  [--usage-session 62 --usage-weekly 30]
 
+Controle local (AutoHotkey, Stream Deck, atalhos do Windows, scripts):
+
+    TzIsland.exe --timer 25m [--pause|--stop]      # 90s, 1h30m, 45 (min)
+    TzIsland.exe --dnd on|off|toggle
+    TzIsland.exe --volume 40|+5|-5     ·   --mute on|off|toggle
+    TzIsland.exe --page media|focus|system|...
+    TzIsland.exe --media play|pause|next|prev|toggle
+
+Tudo vai pelo mesmo pipe nomeado (`TzIsland.ipc.v2`): a segunda instância repassa o comando à
+principal e encerra. Nada de HTTP aberto nem porta na rede.
+
 ## Monitoramento de agentes de IA (sem dados inventados)
 O app mostra apenas o que consegue **de fato** saber:
 - **Processo aberto**: Claude Code, Codex, Cursor, Ollama, LM Studio.
@@ -76,5 +87,24 @@ Limitação: os serviços não sobem nesse modo, então widgets de sistema apare
 dotnet run --project Tests
 ```
 
-Runner próprio (sem pacote externo): molas, perfis de intensidade, geometria do notch, cascata radial,
-backup (incluindo zip com caminho malicioso) e agrupamento do diagnóstico. Sai com código 0 quando tudo passa.
+Runner próprio (sem pacote externo), 46 casos: molas, perfis de intensidade, geometria do notch, cascata
+radial, backup (round-trip, zip malicioso, manifest e esquema mais novo), agenda (RRULE/COUNT/EXDATE/
+RECURRENCE-ID/TZID), rotação do log, durações da CLI e agrupamento do diagnóstico. Sai com código 0
+quando tudo passa. O workflow `.github/workflows/windows.yml` roda build + testes em `windows-latest`
+em todo push e pull request.
+
+## Desempenho
+
+```bash
+TzIsland.exe --bench 10              # recolhido
+TzIsland.exe --bench 10 --expanded   # expandido
+```
+
+Imprime CPU do processo, RAM privada e p95 de quadro, e grava em `%AppData%\TzIsland\bench.txt`.
+Baseline medido e guarda de regressão: **docs/PERF.md**. Os três números também aparecem em
+Configurações → Diagnóstico.
+
+## Distribuição
+
+Velopack (atual) vs MSIX (necessário para ler notificações do Windows de outros apps): a análise e a
+recomendação estão em **docs/DISTRIBUICAO.md**.

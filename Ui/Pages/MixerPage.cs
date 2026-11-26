@@ -61,7 +61,7 @@ sealed class MixerRow : Border
             if (App.Muted && v > 0) Svc.Mixer.SetMuted(App, false);
             Sync();
         };
-        MouseEnter += (_, _) => Background = K.Hex("#FF1A1A1D");
+        MouseEnter += (_, _) => Background = K.Raised;
         MouseLeave += (_, _) => Background = K.Card;
         // Rolar o mouse sobre a linha ajusta o volume de 2 em 2 (Shift = de 10 em 10).
         PreviewMouseWheel += (_, e) =>
@@ -177,7 +177,7 @@ public sealed class MixerPage : PageBase
         side.Children.Add(FK.Header(Ico.Make("headphones", 12, K.Label, 1.9), "Saída"));
         side.Children.Add(_devices.M(0, 6, 0, 0));
 
-        var card = FK.Card(K.Scroll(side), 20); card.Padding = new Thickness(15, 13, 12, 12);
+        var card = FK.Card(K.Scroll(side), 20); card.Padding = new Thickness(16, 14, 14, 14);
         body.Children.Add(card.At(col: 1));
         Root.Children.Add(body.At(row: 1));
 
@@ -264,7 +264,7 @@ public sealed class MixerPage : PageBase
             };
             if (!d.IsDefault)
             {
-                b.MouseEnter += (_, _) => b.Background = K.Hex("#FF1A1A1D");
+                b.MouseEnter += (_, _) => b.Background = K.Raised;
                 b.MouseLeave += (_, _) => b.Background = K.Card;
                 b.MouseLeftButtonDown += (_, e) =>
                 {
