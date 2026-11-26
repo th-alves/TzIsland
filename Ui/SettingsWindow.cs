@@ -57,13 +57,31 @@ public sealed class SettingsWindow : Window
         AddTab(sp, "\uE765", "Atalhos", Hotkeys);
         AddTab(sp, "\uE72E", "Privacidade", Privacy);
         AddTab(sp, "\uE9D9", "Diagnóstico", DiagnosticsTab);
-        side.Child = sp;
+        // Rodapé fixo da barra lateral: redefinir tudo, sempre à vista (antes só no fim de abas específicas).
+        var rg = K.Glyph("\uE777", 14, K.Red); rg.Width = 22; rg.HorizontalAlignment = HorizontalAlignment.Left;
+        var rrow = new StackPanel { Orientation = Orientation.Horizontal };
+        rrow.Children.Add(rg); rrow.Children.Add(K.T("Redefinir configurações", 12.5, K.Red, true).Vc());
+        var resetBtn = new Button { Style = K.Ghost, Content = rrow, Height = 40, Margin = new Thickness(14, 0, 14, 14), Tag = new CornerRadius(12), Padding = new Thickness(12, 0, 8, 0), HorizontalAlignment = HorizontalAlignment.Stretch, ToolTip = "Volta todas as opções ao padrão de fábrica" };
+        resetBtn.Click += (_, _) => ResetAll();
+        var sideGrid = new Grid();
+        sideGrid.RowDefinitions.Add(new RowDefinition());
+        sideGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        sideGrid.Children.Add(sp);
+        sideGrid.Children.Add(resetBtn.At(row: 1));
+        side.Child = sideGrid;
         root.Children.Add(side);
 
         _pageHost.Margin = new Thickness(26, 8, 8, 8);
         root.Children.Add(_pageHost.At(col: 1));
         Content = root;
         SelectTab(0);
+    }
+
+    void ResetAll()
+    {
+        if (MessageBox.Show("Deseja redefinir todas as configurações para o padrão de fábrica?", "TzIsland", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        Settings.Reset();
+        Close(); ShowSingle();
     }
 
     void AddTab(StackPanel host, string glyph, string title, Func<StackPanel> build)

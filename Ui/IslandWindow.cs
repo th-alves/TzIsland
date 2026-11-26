@@ -599,6 +599,7 @@ public sealed class IslandWindow : Window
     // ---------------- Settings synchronization ----------------
     IslandAnim _lastAnim = Settings.Current.IslandAnim;
     MotionIntensity _lastIntensity = Settings.Current.MotionIntensity;
+    double _lastEW = Settings.Current.ExpandedWidth, _lastEH = Settings.Current.ExpandedHeight;
     readonly DispatcherTimer _previewT = new() { Interval = TimeSpan.FromMilliseconds(2200) };
     readonly TextBlock _statsText = K.T("", 9.5, K.Muted);
     readonly Border _statsBox = new()
@@ -817,7 +818,30 @@ public sealed class IslandWindow : Window
         if ((kind & SettingsChange.Modules) != 0) BuildNav();
         if ((kind & SettingsChange.Behavior) != 0) RegisterHotkeys();
         SetState(_st);          // retarget, nunca snap
+        if ((kind & SettingsChange.Layout) != 0) RetargetSize();
         RefreshMini();
+    }
+
+    /// <summary>
+    /// Largura/altura/raio do corpo da ilha são molas alimentadas só por SetState, que sai cedo quando o estado não muda:
+    /// mexer nas dimensões nas Configurações só redimensionava o conteúdo da pílula (o LED). Aqui o corpo recebe o novo alvo,
+    /// e ao mudar as dimensões expandidas a ilha abre sozinha como prévia (fecha depois, como no preview de animação).
+    /// </summary>
+    void RetargetSize()
+    {
+        bool expChanged = S.ExpandedWidth != _lastEW || S.ExpandedHeight != _lastEH;
+        _lastEW = S.ExpandedWidth; _lastEH = S.ExpandedHeight;
+        bool opened = false;
+        if (expChanged && !_noExpand && _st == St.Collapsed) { Expand(); opened = true; }   // SetState já aponta para o tamanho novo, com o perfil de animação escolhido
+        if (!opened)
+        {
+            var (w, h, r) = Target(_st);
+            if (S.Animations) { _w.To(w, 0, 620, 46); _h.To(h, 0, 620, 46); _r.To(r, 0, 620, 46); }
+            else { _w.Snap(w); _h.Snap(h); _r.Snap(r); }
+        }
+        Frame();
+        _loop.Kick();
+        if (expChanged && _st == St.Expanded) { _previewT.Stop(); _previewT.Start(); }
     }
 
     void ApplySettings()

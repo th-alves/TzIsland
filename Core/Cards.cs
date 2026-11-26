@@ -166,6 +166,9 @@ public sealed class CardBoard
     public CardBoard(int cols, string[] widths, Func<int, double>? rowMin = null, bool lastRowStar = false)
     {
         _cols = cols; _rowMin = rowMin; _lastRowStar = lastRowStar;
+        // Respiro dentro do viewport de rolagem: sem isto a elevação (Lift) e a escala do hover dos cartões da
+        // primeira linha e das bordas eram recortadas pelo ScrollViewer, passando "por baixo" do topo da ilha.
+        Host.Margin = new Thickness(4, 8, 4, 4);
         foreach (var w in widths) Host.ColumnDefinitions.Add(new ColumnDefinition { Width = K.GL(w) });
     }
 

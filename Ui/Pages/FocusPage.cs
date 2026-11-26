@@ -245,9 +245,11 @@ public sealed class FocusPage : PageBase, IFrameSink
     /// </summary>
     public bool Step(double dt)
     {
-        if (!_shown) return false;
+        if (!_shown) { _hooked = false; return false; }
         Frame(dt);
-        return Busy;
+        if (Busy) return true;
+        _hooked = false;   // o MotionHost remove o sink ao receber false: sem isto Hook() nunca reanexava
+        return false;
     }
 
     bool Busy =>
@@ -263,7 +265,18 @@ public sealed class FocusPage : PageBase, IFrameSink
         Hook();
     }
 
-    void OnWater() { _waterDirty = true; }
+    void OnWater()
+    {
+        _waterDirty = true;
+        void Apply()
+        {
+            if (!_shown || !_waterDirty) return;
+            SyncWater(false);   // aplica a gota na hora, sem depender de outro evento para gerar quadro
+            Hook();             // reativa o laço para o "pulo" do contador
+        }
+        var d = Root.Dispatcher;
+        if (d.CheckAccess()) Apply(); else d.BeginInvoke(Apply);
+    }
 
     // ---------------- helpers ----------------
     static TimeSpan Ceil(TimeSpan t) => TimeSpan.FromSeconds(Math.Ceiling(Math.Max(0, t.TotalSeconds)));
