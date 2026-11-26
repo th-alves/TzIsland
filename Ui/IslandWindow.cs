@@ -57,8 +57,8 @@ public sealed class IslandWindow : Window
     // Geometria reaproveitada no modo Flutuante: sem alocar um StreamGeometry novo por quadro.
     RectangleGeometry? _roundClip;
     // Sombra externa: halo real desenhado FORA da silhueta, dentro da janela transparente.
-    // O halo não rouba cliques: fora da ilha o WM_NCHITTEST devolve HTTRANSPARENT.
-    const double ShadowBlur = 22, ShadowDepth = 5;
+    // A janela é recortada por SetWindowRgn (ilha + ShadowPad); o resto da janela não existe para o mouse.
+    const double ShadowPad = 24, ShadowBlur = 22, ShadowDepth = 5;
     readonly Canvas _shadowStage = new() { IsHitTestVisible = false };
     readonly Border _shadowBox = new()
     {
@@ -557,6 +557,7 @@ public sealed class IslandWindow : Window
             default: x = sc.Bounds.Left + (sc.Bounds.Width - wpx) / 2; break;
         }
         Native.SetWindowPos(_hwnd, IntPtr.Zero, x, y, 0, 0, Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+        UpdateRegion();
     }
 
     void SaveDraggedPosition()
@@ -570,9 +571,30 @@ public sealed class IslandWindow : Window
         Settings.Apply();
     }
 
-    // A janela não é mais recortada por SetWindowRgn: recortá-la fazia o Windows desenhar um contorno de 1 px
-    // em volta da região, visível como uma "caixa" em volta da pílula (aparecia depois de usar o modo Clássico).
-    // O halo da sombra continua sendo desenhado; o que está fora da ilha é click-through pelo WM_NCHITTEST.
+    // A janela PRECISA ser recortada por SetWindowRgn. HTTRANSPARENT no WM_NCHITTEST só repassa o clique para
+    // janelas da mesma thread: para o navegador, a área de trabalho ou qualquer outro app, a parte vazia da
+    // janela (880x444 px) continuava engolindo todos os cliques. Sem região, essa área fica "morta" na tela.
+    // Para não voltar o contorno de 1 px que o DWM desenhava em volta da região, o SuppressFrame é reaplicado
+    // sempre que a região muda.
+    int _rgnL = -1, _rgnT = -1, _rgnR = -1, _rgnB = -1;
+
+    void UpdateRegion()
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
+        double w = Math.Max(1, _w.Value), h = Math.Max(1, _h.Value), left = (Width - w) / 2, top = _island.Margin.Top;
+        // O halo da sombra vive FORA da silhueta: a região cresce junto (senão o DWM corta o degradê).
+        int pad = S.WindowShadow && Floating ? (int)Math.Ceiling(ShadowPad * dpi) : 0;
+        int l = (int)Math.Floor(left * dpi) - pad, t = (int)Math.Floor(top * dpi) - pad;
+        int r = (int)Math.Ceiling((left + w) * dpi) + pad, b = (int)Math.Ceiling((top + h) * dpi) + pad;
+        l = Math.Max(0, l); t = Math.Max(0, t);
+        r = Math.Min((int)Math.Ceiling(Width * dpi), r); b = Math.Min((int)Math.Ceiling(Height * dpi), b);
+        if (r <= l || b <= t) return;                                     // região inválida (meio do overshoot): mantém a anterior
+        if (l == _rgnL && t == _rgnT && r == _rgnR && b == _rgnB) return;   // nada mudou: evita recriar a região a cada quadro
+        _rgnL = l; _rgnT = t; _rgnR = r; _rgnB = b;
+        Native.SetWindowRgn(_hwnd, Native.CreateRectRgn(l, t, r, b), true);   // o sistema passa a ser dono da região
+        SuppressFrame();
+    }
 
     // ---------------- Settings synchronization ----------------
     IslandAnim _lastAnim = Settings.Current.IslandAnim;
@@ -1508,6 +1530,7 @@ public sealed class IslandWindow : Window
             _shadowBox.Width = w; _shadowBox.Height = h;
             _shadowBox.CornerRadius = new CornerRadius(rb);
         }
+        UpdateRegion();
     }
 
     // ---------------- Real backdrop blur capture ----------------

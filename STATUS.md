@@ -212,3 +212,8 @@ Todos os itens abaixo precisam ser testados por você no primeiro `dotnet run`; 
 - ✅ **Decisão de distribuição documentada:** **docs/DISTRIBUICAO.md** recomenda manter o Velopack agora e migrar para MSIX de uma vez se o Inbox do Windows virar prioridade (não manter os dois).
 - ⏳ **Fora desta rodada:** i18n (extração para `.resx`), acessibilidade das páginas internas e MSIX.
 - ⚠️ **Verificado:** `dotnet build` 0 erros, 46/46 testes, `--bench` recolhido e expandido. A paleta, o foco por teclado e o anel de foco **não foram inspecionados visualmente** nesta rodada.
+
+## Etapa 25 — Correção: área morta de cliques em volta da ilha (v3.1.1)
+- ✅ **Causa:** a janela da ilha (880×444 px, sempre no topo) não era mais recortada por `SetWindowRgn` desde a reescrita do motor de animação; o click-through dependia de `HTTRANSPARENT`, que só repassa cliques para janelas da mesma thread. Para outros apps, toda a área vazia da janela engolia os cliques.
+- ✅ **Correção:** `UpdateRegion()` voltou (ilha + `ShadowPad` no Flutuante), chamada a cada quadro e no `Place()`; `SuppressFrame()` é reaplicado a cada nova região para não voltar o contorno de 1 px.
+- ⚠️ **Verificado:** `WindowFromPoint` nos cantos e no centro com a ilha recolhida e expandida; prints sem contorno. Modo Clássico e multi-monitor não testados.
