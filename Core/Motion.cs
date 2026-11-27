@@ -184,6 +184,21 @@ public static class HitRegion
     }
 
     /// <summary>
+    /// Dilata a região em <paramref name="px"/> pixels para cada lado. A janela corta em pixels inteiros, mas a
+    /// silhueta é desenhada com antialiasing: sem folga o corte cai no meio do degradê da borda e o canto vira
+    /// degraus. Os pixels a mais ficam invisíveis (a forma é transparente ali) e só o fio da borda pega clique.
+    /// Use 2 para a janela: 1 cobre o degradê e o outro absorve o meio-pixel de erro do arredondamento da origem
+    /// (com DPI ≠ 100% a forma cai no meio do pixel, e com 1 px sobravam pixels desenhados cortados).
+    /// </summary>
+    public static List<Int32Rect> Grow(List<Int32Rect> rects, int px)
+    {
+        if (px <= 0) return rects;
+        var grown = new List<Int32Rect>(rects.Count);
+        foreach (var r in rects) grown.Add(new Int32Rect(r.X - px, r.Y - px, r.Width + 2 * px, r.Height + 2 * px));
+        return grown;
+    }
+
+    /// <summary>
     /// Retângulos exatamente da silhueta de notch (modo Clássico): topo reto colado na borda, ombros côncavos de
     /// raio <paramref name="ear"/> e base arredondada de raio <paramref name="bottom"/>. O corpo recua
     /// <paramref name="ear"/> de cada lado em toda a altura — é o espaço vazio dos ombros, por onde passam as abas
