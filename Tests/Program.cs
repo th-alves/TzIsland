@@ -23,6 +23,7 @@ static class Program
         Springs();
         Intensity();
         Notch();
+        HitRegion();
         Radial();
         BackupRoundTrip();
         BackupRejectsTraversal();
@@ -77,6 +78,33 @@ static class Program
         Check("Discreto encurta a cascata", dis.RevealStep < nat.RevealStep);
         Check("Expressivo alonga a cascata", exp.RevealStep > nat.RevealStep);
         Check("estilo inválido cai no Fluid", AnimProfiles.Get((IslandAnim)99).Name == AnimProfiles.Fluid.Name);
+    }
+
+    static void HitRegion()
+    {
+        Console.WriteLine("região de cliques");
+        // Clássico recolhido (36 px de altura, raio 11): o canto de cima tem de ficar de fora, o centro de dentro.
+        var rects = TzIsland.HitRegion.Rectangles(0, 0, 200, 36, 11);
+        Check("região tem corpo e degraus", rects.Count > 3, rects.Count.ToString());
+        bool topLeftIn = rects.Any(r => r.X == 0 && r.Y == 0);
+        bool centerIn = rects.Any(r => r.Y <= 18 && r.Y + r.Height > 18 && r.X <= 100 && r.X + r.Width > 100);
+        Check("canto do topo não captura clique", !topLeftIn);
+        Check("centro da ilha captura clique", centerIn);
+        // toda linha do canto esquerdo tem de começar no arco (nunca em x=0 nas primeiras linhas)
+        var firstRows = rects.Where(r => r.Height == 1 && r.Y < 11 && r.X < 11).ToList();
+        Check("linhas do arco recuam do canto", firstRows.All(r => r.X > 0), string.Join(",", firstRows.Select(r => r.X)));
+        // caixa mais larga que o raio não estoura nem gera retângulo invertido
+        var wide = TzIsland.HitRegion.Rectangles(10, 20, 400, 300, 17);
+        Check("retângulos válidos", wide.All(r => r.Width > 0 && r.Height > 0));
+        var none = TzIsland.HitRegion.Rectangles(0, 0, 0, 0, 5);
+        Check("tamanho zero não gera retângulo", none.Count == 0);
+        // Silhueta de notch (Clássico): o corpo recua os ombros, então as abas do navegador ao lado da ilha
+        // voltam a receber o clique.
+        var notch = TzIsland.HitRegion.Notch(0, 0, 200, 36, 11, 20);
+        Check("corpo do notch recua os ombros", notch.Any(r => r.Y == 11 && r.X == 11 && r.Width == 178 && r.Height == 5));
+        Check("ombros do notch não capturam clique", notch.Where(r => r.Y >= 1 && r.Y < 11).All(r => r.X >= 1));
+        Check("notch não estoura a caixa", notch.All(r => r.X >= 0 && r.Y >= 0 && r.X + r.Width <= 200 && r.Y + r.Height <= 36));
+        Check("notch com altura zero não gera retângulo", TzIsland.HitRegion.Notch(0, 0, 200, 0, 11, 20).Count == 0);
     }
 
     static void Notch()
