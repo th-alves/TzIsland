@@ -148,6 +148,84 @@ public static class NotchGeo
 }
 
 /// <summary>
+/// Área da janela que responde ao mouse. A janela é grande (a silhueta mais o halo da sombra), mas só a
+/// parte visível da ilha deve capturar cliques: o resto precisa atravessar para o app de baixo. Isso é
+/// feito com SetWindowRgn, e a região é uma lista de retângulos (o GDI não tem região de cantos redondos).
+/// </summary>
+public static class HitRegion
+{
+    /// <summary>
+    /// Retângulos que cobrem exatamente a silhueta. O corpo é a caixa cheia; em cada canto redondo sobra uma
+    /// "escada" de faixas de 1 px cuja largura sai do próprio círculo, então nenhum pixel de fora da ilha
+    /// fica clicável e nenhum pixel de dentro é perdido. Coordenadas em pixels, inteiras.
+    /// </summary>
+    public static List<Int32Rect> Rectangles(int x, int y, int w, int h, int radius)
+    {
+        var rects = new List<Int32Rect>();
+        if (w <= 0 || h <= 0) return rects;
+        int r = Math.Clamp(radius, 0, Math.Min(w / 2, h / 2));
+        if (r <= 0) { rects.Add(new Int32Rect(x, y, w, h)); return rects; }
+
+        int midTop = y + r, midH = h - 2 * r;
+        if (midH > 0) rects.Add(new Int32Rect(x, midTop, w, midH));          // faixa do meio, largura inteira
+
+        // Cantos: para cada linha a `d` px do topo (ou do fundo), quanto o círculo "entra" na caixa.
+        // inset = r - floor(sqrt(r² - (r-d)²)): o pixel só é incluído quando o centro dele está dentro do arco.
+        for (int d = 0; d < r; d++)
+        {
+            double dy = r - d - 0.5;
+            int inset = r - (int)Math.Floor(Math.Sqrt(Math.Max(0, r * r - dy * dy)));
+            int rowW = w - 2 * inset;
+            if (rowW <= 0) continue;
+            rects.Add(new Int32Rect(x + inset, y + d, rowW, 1));
+            rects.Add(new Int32Rect(x + inset, y + h - 1 - d, rowW, 1));
+        }
+        return rects;
+    }
+
+    /// <summary>
+    /// Retângulos exatamente da silhueta de notch (modo Clássico): topo reto colado na borda, ombros côncavos de
+    /// raio <paramref name="ear"/> e base arredondada de raio <paramref name="bottom"/>. O corpo recua
+    /// <paramref name="ear"/> de cada lado em toda a altura — é o espaço vazio dos ombros, por onde passam as abas
+    /// do navegador. Uma caixa arredondada ali (o que se usava) engolia esses cliques.
+    /// </summary>
+    public static List<Int32Rect> Notch(int x, int y, int w, int h, int ear, int bottom)
+    {
+        var rects = new List<Int32Rect>();
+        if (w <= 0 || h <= 0) return rects;
+        int r = Math.Clamp(ear, 0, Math.Min(w / 4, h / 2));
+        int rb = Math.Clamp(bottom, 0, Math.Max(0, Math.Min((w - 2 * r) / 2, h - r)));
+        int bodyW = w - 2 * r;
+        if (bodyW <= 0) { rects.Add(new Int32Rect(x, y, w, h)); return rects; }
+
+        int bodyTop = y + r, bodyBottom = y + h - rb;
+        if (bodyBottom > bodyTop) rects.Add(new Int32Rect(x + r, bodyTop, bodyW, bodyBottom - bodyTop));
+
+        // Ombros: nas primeiras `r` linhas a silhueta tem a largura toda e a curva côncava come as pontas.
+        for (int d = 0; d < r; d++)
+        {
+            double t = d + 0.5;
+            int grow = (int)Math.Floor(Math.Sqrt(Math.Max(0, (double)r * r - t * t)));
+            int rowW = bodyW + 2 * grow;
+            if (rowW <= 0) continue;
+            rects.Add(new Int32Rect(x + r - grow, y + d, rowW, 1));
+        }
+
+        // Base arredondada (mesma escada de 1 px dos cantos da caixa).
+        for (int d = 0; d < rb; d++)
+        {
+            double dy = rb - d - 0.5;
+            int inset = rb - (int)Math.Floor(Math.Sqrt(Math.Max(0, (double)rb * rb - dy * dy)));
+            int rowW = bodyW - 2 * inset;
+            if (rowW <= 0) continue;
+            rects.Add(new Int32Rect(x + r + inset, y + h - 1 - d, rowW, 1));
+        }
+        return rects;
+    }
+
+}
+
+/// <summary>
 /// Camada de "motion design" do app. Entradas em cascata, presets de física e animações
 /// interrompíveis: tudo passa pelo <see cref="MotionEngine"/>, que garante um único dono por propriedade.
 /// </summary>

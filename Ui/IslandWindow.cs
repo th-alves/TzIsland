@@ -56,9 +56,11 @@ public sealed class IslandWindow : Window
     readonly TranslateTransform _expShift = new();
     // Geometria reaproveitada no modo Flutuante: sem alocar um StreamGeometry novo por quadro.
     RectangleGeometry? _roundClip;
-    // Sombra externa: halo real desenhado FORA da silhueta, dentro da janela transparente.
-    // A janela é recortada por SetWindowRgn (ilha + ShadowPad); o resto da janela não existe para o mouse.
-    const double ShadowPad = 24, ShadowBlur = 22, ShadowDepth = 5;
+    // Sombra externa: halo desenhado FORA da silhueta, numa janela própria e transparente ao mouse
+    // (EnsureShadowWindow). Ele não pode morar na janela da ilha: a região que recorta a silhueta recorta o
+    // desenho também, então o halo teria de entrar na região — e aquela faixa invisível em volta da pílula
+    // voltava a engolir os cliques em abas e botões dos apps de baixo.
+    const double ShadowBlur = 22, ShadowDepth = 5;
     readonly Canvas _shadowStage = new() { IsHitTestVisible = false };
     readonly Border _shadowBox = new()
     {
@@ -226,6 +228,11 @@ public sealed class IslandWindow : Window
     // Um único tique lento (1 s) alimenta relógio recolhido, medidor de quadro e a checagem de tela cheia:
     // eram três DispatcherTimers acordando a UI em instantes diferentes só para ler o relógio do sistema.
     readonly DispatcherTimer _hoverT = new(), _collapseT = new(), _bannerT = new(), _tickT = new() { Interval = TimeSpan.FromSeconds(1) };
+    // Vigia do cursor: com a janela recortada na silhueta o WM_MOUSELEAVE pode não chegar (o ponteiro segue dentro
+    // do retângulo da janela), então o "o mouse saiu" é conferido no cursor de verdade. Roda enquanto a ilha está
+    // aberta — recolhida, zero acordadas.
+    readonly DispatcherTimer _hereT = new() { Interval = TimeSpan.FromMilliseconds(200) };
+    bool _wasHovered;
     DateTime _activity = DateTime.Now;
     Point _downPos; bool _mouseDown;
     bool _noExpand;
@@ -285,10 +292,11 @@ public sealed class IslandWindow : Window
         Svc.Focus.Tick += RefreshMini; Svc.Agents.Changed += RefreshMini; Svc.Camera.StateChanged += RefreshMini;
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += (_, _) => Dispatcher.InvokeAsync(Place);
 
-        _hoverT.Tick += (_, _) => { _hoverT.Stop(); if (S.ExpandOnHover && _island.IsMouseOver) Expand(); };
+        _hoverT.Tick += (_, _) => { _hoverT.Stop(); if (S.ExpandOnHover && CursorOnIsland()) Expand(); };
+        _hereT.Tick += (_, _) => WatchCursor();
         _collapseT.Tick += OnCollapseTick;
-        _bannerT.Tick += (_, _) => { _bannerT.Stop(); if (_st == St.Banner && !_island.IsMouseOver) SetState(St.Collapsed); };
-        _previewT.Tick += (_, _) => { _previewT.Stop(); if (!_island.IsMouseOver && _st == St.Expanded) Collapse(); };
+        _bannerT.Tick += (_, _) => { _bannerT.Stop(); if (_st == St.Banner && !CursorOnIsland()) SetState(St.Collapsed); };
+        _previewT.Tick += (_, _) => { _previewT.Stop(); if (_st == St.Expanded && !CursorOnIsland()) Collapse(); };
         _hudT.Tick += (_, _) => { _hudT.Stop(); FadeHud(false); };
         Svc.Downloads.Changed += () => Dispatcher.InvokeAsync(RefreshMini);
         Svc.Calendar.Changed += () => Dispatcher.InvokeAsync(RefreshMini);
@@ -325,9 +333,8 @@ public sealed class IslandWindow : Window
     void BuildTree()
     {
         Content = _root;
-        // A sombra é irmã da ilha (fora do clipe dela) e fica atrás de tudo.
+        // O halo da sombra é o conteúdo da janela dele (fora do clipe da ilha): ver EnsureShadowWindow.
         _shadowStage.Children.Add(_shadowBox);
-        _root.Children.Add(_shadowStage);
         _root.Children.Add(_island);
         _island.HorizontalAlignment = HorizontalAlignment.Center;
         _island.VerticalAlignment = VerticalAlignment.Top;
@@ -443,7 +450,7 @@ public sealed class IslandWindow : Window
         _island.MouseWheel += OnIslandWheel;
         _island.MouseDown += OnIslandMiddle;
         _island.MouseLeave += (_, _) => { _hoverT.Stop(); if (_st == St.Expanded) ArmCollapse(); };
-        _island.PreviewMouseMove += (_, _) => _activity = DateTime.Now;
+        _island.PreviewMouseMove += (_, _) => { _activity = DateTime.Now; if (!_hereT.IsEnabled) _hereT.Start(); };
         _island.PreviewMouseDown += OnPreviewDown;
         _island.MouseLeftButtonDown += (_, e) => { _mouseDown = true; _downPos = e.GetPosition(this); };
         _island.MouseMove += OnIslandMove;
@@ -492,6 +499,77 @@ public sealed class IslandWindow : Window
         _src?.AddHook(WndProc);
         RegisterHotkeys();
         try { Native.AddClipboardFormatListener(_hwnd); } catch (Exception clipErr) { Log.Write(clipErr); }
+        EnsureShadowWindow();
+    }
+
+    /// <summary>
+    /// O halo da sombra vive numa janela própria, inteiramente transparente ao mouse (WS_EX_TRANSPARENT).
+    /// Antes ele era desenhado na janela da ilha e, para o DWM não cortar o degradê, a região de cliques tinha de
+    /// incluí-lo: eram ~24 px invisíveis em volta da pílula onde o clique não chegava nem na ilha nem no app de baixo.
+    /// </summary>
+    void EnsureShadowWindow()
+    {
+        if (_shadowWin != null) return;
+        var w = new Window
+        {
+            WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, AllowsTransparency = true,
+            Background = Brushes.Transparent, ShowInTaskbar = false, ShowActivated = false, Focusable = false,
+            IsHitTestVisible = false, Topmost = true, Content = _shadowStage
+        };
+        w.SourceInitialized += (_, _) => ClickThrough(new WindowInteropHelper(w).Handle);
+        _shadowWin = w;
+    }
+
+    /// <summary>Janela só de desenho: nenhum pixel dela pertence ao mouse.</summary>
+    static void ClickThrough(IntPtr h)
+    {
+        if (h == IntPtr.Zero) return;
+        int ex = Native.GetWindowLong(h, Native.GWL_EXSTYLE);
+        Native.SetWindowLong(h, Native.GWL_EXSTYLE, ex | Native.WS_EX_TRANSPARENT | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE);
+    }
+
+    /// <summary>
+    /// Alinha o halo à janela da ilha e o mantém logo ABAIXO dela na ordem Z (a pílula cobre o próprio halo).
+    /// Sem halo (Clássico, ajuste desligado ou ilha oculta) a janela some: nada invisível fica sobre os apps.
+    /// </summary>
+    void SyncShadowWindow(bool force = false)
+    {
+        if (_shadowWin == null) return;
+        if (!(Floating && S.WindowShadow && IsVisible))
+        {
+            if (_shadowWin.IsVisible) _shadowWin.Hide();
+            return;
+        }
+        if (!_shadowWin.IsVisible)
+        {
+            _shadowWin.Opacity = 0;      // evita um quadro do halo na posição antiga
+            AlignShadow();
+            _shadowWin.Show();
+            ClickThrough(new WindowInteropHelper(_shadowWin).Handle);
+            force = true;
+        }
+        IntPtr sh = new WindowInteropHelper(_shadowWin).Handle;
+        if (sh == IntPtr.Zero || _hwnd == IntPtr.Zero || !Native.GetWindowRect(_hwnd, out var rc)) return;
+        bool same = !force && Native.GetWindowRect(sh, out var sr)
+                    && sr.Left == rc.Left && sr.Top == rc.Top && sr.Right == rc.Right && sr.Bottom == rc.Bottom;
+        if (!same)
+        {
+            AlignShadow();
+            // Pixels do sistema (imune a DPI) e `_hwnd` como vizinho: fica exatamente embaixo da ilha, que segue em cima.
+            Native.SetWindowPos(sh, _hwnd, rc.Left, rc.Top, rc.Right - rc.Left, rc.Bottom - rc.Top, Native.SWP_NOACTIVATE);
+        }
+        if (_shadowWin.Opacity < 1) _shadowWin.Opacity = 1;
+    }
+
+    /// <summary>
+    /// Mesma caixa da janela da ilha para a janela do halo. Em DIPs porque o WPF mantém largura/altura próprias e
+    /// reaplicaria o layout dele depois de um reposicionamento feito só no HWND (a sombra ficava na posição errada).
+    /// </summary>
+    void AlignShadow()
+    {
+        if (_shadowWin == null) return;
+        _shadowWin.Width = Width; _shadowWin.Height = Height;
+        _shadowWin.Left = Left; _shadowWin.Top = Top;
     }
 
     /// <summary>Sem moldura e sem arredondamento do Windows: a silhueta é desenhada pelo app.</summary>
@@ -517,13 +595,19 @@ public sealed class IslandWindow : Window
         else if (msg == Native.WM_NCHITTEST)
         {
             // O halo (e o espaço morto da janela) não é área da ilha: o clique precisa atravessar.
+            // Com a região no formato da silhueta, isto só serve para os cantos do halo e para o quadro em que a
+            // região ainda não foi reaplicada; o teste segue a forma redonda, não a caixa.
             try
             {
                 long lp = l.ToInt64();
                 int sx = (short)(lp & 0xFFFF), sy = (short)((lp >> 16) & 0xFFFF);
                 var p = PointFromScreen(new Point(sx, sy));
                 double iw = Math.Max(1, _w.Value), ih = Math.Max(1, _h.Value), il = (Width - iw) / 2, it = _island.Margin.Top;
-                if (p.X < il - 1 || p.X > il + iw + 1 || p.Y < it - 1 || p.Y > it + ih + 1)
+                double rb = Math.Clamp(_r.Value, 0, Math.Min(iw, ih) / 2);
+                bool inside = Floating
+                    ? InsideSilhouette(p.X - il, p.Y - it, iw, ih, rb)
+                    : InsideNotch(p.X - il, p.Y - it, iw, ih, Math.Min(11, Math.Max(0, ih * 0.3)), rb);
+                if (!inside)
                 {
                     handled = true;
                     return new IntPtr(Native.HTTRANSPARENT);
@@ -532,6 +616,40 @@ public sealed class IslandWindow : Window
             catch { }
         }
         return IntPtr.Zero;
+    }
+
+    /// <summary>Ponto (em coordenadas da ilha) dentro da silhueta? Cantos redondos ficam de fora, como na tela.</summary>
+    static bool InsideSilhouette(double x, double y, double w, double h, double r)
+    {
+        if (x < 0 || y < 0 || x > w || y > h) return false;
+        r = Math.Clamp(r, 0, Math.Min(w, h) / 2);
+        if (r <= 0) return true;
+        double cx = x < r ? r : x > w - r ? w - r : x;      // centro do canto mais próximo
+        double cy = y < r ? r : y > h - r ? h - r : y;
+        double dx = x - cx, dy = y - cy;
+        return dx * dx + dy * dy <= r * r;
+    }
+
+    /// <summary>Ponto dentro da silhueta de notch? Os ombros côncavos ficam de fora, como na tela.</summary>
+    static bool InsideNotch(double x, double y, double w, double h, double ear, double rb)
+    {
+        if (x < 0 || y < 0 || x > w || y > h) return false;
+        ear = Math.Clamp(ear, 0, Math.Min(w / 4, h / 2));
+        rb = Math.Clamp(rb, 0, Math.Max(0, Math.Min((w - 2 * ear) / 2, h - ear)));
+        double left = ear, right = w - ear;
+        if (y < ear)
+        {
+            double grow = Math.Sqrt(Math.Max(0, ear * ear - y * y));
+            left = ear - grow; right = w - ear + grow;
+        }
+        if (x < left || x > right) return false;
+        if (rb > 0 && y > h - rb)
+        {
+            double dy = y - (h - rb);
+            double grow = Math.Sqrt(Math.Max(0, rb * rb - dy * dy));
+            if (x < ear + rb - grow || x > w - ear - rb + grow) return false;
+        }
+        return true;
     }
 
     void RegisterHotkeys()
@@ -575,6 +693,7 @@ public sealed class IslandWindow : Window
         }
         Native.SetWindowPos(_hwnd, IntPtr.Zero, x, y, 0, 0, Native.SWP_NOSIZE | Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
         UpdateRegion();
+        SyncShadowWindow(true);
     }
 
     void SaveDraggedPosition()
@@ -591,26 +710,92 @@ public sealed class IslandWindow : Window
     // A janela PRECISA ser recortada por SetWindowRgn. HTTRANSPARENT no WM_NCHITTEST só repassa o clique para
     // janelas da mesma thread: para o navegador, a área de trabalho ou qualquer outro app, a parte vazia da
     // janela (880x444 px) continuava engolindo todos os cliques. Sem região, essa área fica "morta" na tela.
+    // A região segue a SILHUETA (cantos redondos e ombros do notch), não a caixa: com a caixa cheia, os cantos
+    // da ilha roubavam os cliques das abas do navegador logo abaixo dela.
     // Para não voltar o contorno de 1 px que o DWM desenhava em volta da região, o SuppressFrame é reaplicado
     // sempre que a região muda.
     int _rgnL = -1, _rgnT = -1, _rgnR = -1, _rgnB = -1;
+    Window? _shadowWin;              // janela do halo (click-through), ver EnsureShadowWindow
 
     void UpdateRegion()
     {
         if (_hwnd == IntPtr.Zero) return;
         double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
         double w = Math.Max(1, _w.Value), h = Math.Max(1, _h.Value), left = (Width - w) / 2, top = _island.Margin.Top;
-        // O halo da sombra vive FORA da silhueta: a região cresce junto (senão o DWM corta o degradê).
-        int pad = S.WindowShadow && Floating ? (int)Math.Ceiling(ShadowPad * dpi) : 0;
-        int l = (int)Math.Floor(left * dpi) - pad, t = (int)Math.Floor(top * dpi) - pad;
-        int r = (int)Math.Ceiling((left + w) * dpi) + pad, b = (int)Math.Ceiling((top + h) * dpi) + pad;
+        // A região é SÓ a silhueta: o halo da sombra está na janela dele, então nenhum pixel invisível em volta
+        // da ilha pertence ao mouse.
+        int l = (int)Math.Floor(left * dpi), t = (int)Math.Floor(top * dpi);
+        int r = (int)Math.Ceiling((left + w) * dpi), b = (int)Math.Ceiling((top + h) * dpi);
         l = Math.Max(0, l); t = Math.Max(0, t);
         r = Math.Min((int)Math.Ceiling(Width * dpi), r); b = Math.Min((int)Math.Ceiling(Height * dpi), b);
         if (r <= l || b <= t) return;                                     // região inválida (meio do overshoot): mantém a anterior
         if (l == _rgnL && t == _rgnT && r == _rgnR && b == _rgnB) return;   // nada mudou: evita recriar a região a cada quadro
         _rgnL = l; _rgnT = t; _rgnR = r; _rgnB = b;
-        Native.SetWindowRgn(_hwnd, Native.CreateRectRgn(l, t, r, b), true);   // o sistema passa a ser dono da região
+        Native.SetWindowRgn(_hwnd, BuildHitRgn(dpi, w, h, left, top), true);   // o sistema passa a ser dono da região
         SuppressFrame();
+        if (DebugRegion) _ = DumpRegionAsync();
+    }
+
+    // Diagnóstico opcional (TZISLAND_DEBUG_REGION=1): despeja a região para o log, para conferir o formato sem
+    // depender de clicar num navegador. Uma linha por faixa de altura, com os intervalos preenchidos.
+    static readonly bool DebugRegion = Environment.GetEnvironmentVariable("TZISLAND_DEBUG_REGION") == "1";
+
+    async Task DumpRegionAsync()
+    {
+        await Task.Delay(120);                                            // depois do SetWindowRgn (que é assíncrono para o DWM)
+        try
+        {
+            if (_hwnd == IntPtr.Zero) return;
+            IntPtr rgn = Native.CreateRectRgn(0, 0, 1, 1);
+            int type = Native.GetWindowRgn(_hwnd, rgn);
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"[região] hwnd={_hwnd} tipo={type} caixa={_rgnL},{_rgnT}..{_rgnR},{_rgnB}");
+            double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
+            for (int y = 0; y < (int)Math.Ceiling(Height * dpi); y += 4)
+            {
+                int x0 = -1, x1 = -1;
+                for (int x = 0; x < (int)Math.Ceiling(Width * dpi); x++)
+                    if (Native.PtInRegion(rgn, x, y)) { if (x0 < 0) x0 = x; x1 = x; }
+                sb.AppendLine($"  y={y} {(x0 < 0 ? "(vazio)" : x0 + ".." + x1)}");
+            }
+            Native.DeleteObject(rgn);
+            Log.Write(sb.ToString());
+        }
+        catch (Exception e) { Log.Write(e); }
+    }
+
+    /// <summary>
+    /// Região da janela para o mouse. A silhueta é composta de retângulos (corpo + degraus dos cantos), juntados
+    /// numa única região com CombineRgn: um retângulo cheio deixava os cantos da ilha capturando cliques de fora.
+    /// </summary>
+    IntPtr BuildHitRgn(double dpi, double w, double h, double left, double top)
+    {
+        int x = (int)Math.Round(left * dpi), y = (int)Math.Round(top * dpi);
+        int pw = Math.Max(1, (int)Math.Round(w * dpi)), ph = Math.Max(1, (int)Math.Round(h * dpi));
+        List<Int32Rect> rects;
+        if (Floating)
+        {
+            int radius = (int)Math.Round(Math.Clamp(_r.Value, 0, Math.Min(w, h) / 2) * dpi);
+            rects = HitRegion.Rectangles(x, y, pw, ph, radius);
+        }
+        else
+        {
+            // Clássico: a região segue o notch de verdade (ombros côncavos), não uma caixa arredondada. Antes a
+            // região tinha `ear` px a mais de cada lado durante toda a altura e capturava o clique das abas do
+            // navegador que passam ao lado da ilha.
+            double ear = Math.Min(11, Math.Max(0, h * 0.3));
+            double bottom = Math.Clamp(_r.Value, 0, Math.Max(0, Math.Min((w - 2 * ear) / 2, h - ear)));
+            rects = HitRegion.Notch(x, y, pw, ph, (int)Math.Round(ear * dpi), (int)Math.Round(bottom * dpi));
+        }
+
+        IntPtr region = Native.CreateRectRgn(0, 0, 0, 0);            // região vazia (vira dona da memória do sistema)
+        foreach (var rc in rects)
+        {
+            IntPtr part = Native.CreateRectRgn(rc.X, rc.Y, rc.X + rc.Width, rc.Y + rc.Height);
+            Native.CombineRgn(region, region, part, Native.RGN_OR);
+            Native.DeleteObject(part);
+        }
+        return region;
     }
 
     // ---------------- Settings synchronization ----------------
@@ -781,8 +966,13 @@ public sealed class IslandWindow : Window
             return;                                        // o resto é tratado pela caixa de busca
         }
         if (e.Key == Key.K && (Keyboard.Modifiers & ModifierKeys.Control) != 0) { TogglePalette(); e.Handled = true; return; }
-        if (e.Key == Key.Escape && _st == St.Expanded) { Collapse(); e.Handled = true; return; }
+        // Esc: primeiro sai do campo de texto (o editor de notas devolve o atalho da ilha ao perder o foco),
+        // depois sim fecha a ilha. Antes, Esc no meio de uma anotação recolhia a ilha inteira.
+        if (e.Key == Key.Escape && _st == St.Expanded && !TypingInText(e.OriginalSource)) { Collapse(); e.Handled = true; return; }
         if (_st != St.Expanded) return;
+        // Quem está escrevendo manda: dentro de um campo de texto (notas, tarefas, agenda) as setas, Tab e PageUp
+        // movem o cursor e o texto. Antes, este atalho global da barra lateral "engolia" as setas do editor.
+        if (TypingInText(e.OriginalSource)) return;
         if (e.Key is Key.Tab or Key.Down or Key.Up or Key.PageDown or Key.PageUp)
         {
             bool back = e.Key is Key.Up or Key.PageUp || e.Key == Key.Tab && (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
@@ -790,6 +980,22 @@ public sealed class IslandWindow : Window
             e.Handled = true;
         }
     }
+
+    /// <summary>
+    /// O evento de teclado nasceu dentro de um campo de texto? Olha a origem, o foco de teclado e o foco
+    /// lógico. Com WS_EX_NOACTIVATE o Windows pode manter o teclado na janela enquanto o editor continua sendo
+    /// o dono do texto: só o foco de teclado não bastava, e as setas de uma nota longa caíam na barra lateral.
+    /// </summary>
+    bool TypingInText(object? source)
+    {
+        if (TextBoxOf(source) != null) return true;
+        if (TextBoxOf(Keyboard.FocusedElement) != null) return true;
+        if (TextBoxOf(FocusManager.GetFocusedElement(this)) != null) return true;
+        return false;
+    }
+
+    static System.Windows.Controls.Primitives.TextBoxBase? TextBoxOf(object? o) =>
+        o is DependencyObject d ? FindParent<System.Windows.Controls.Primitives.TextBoxBase>(d) : null;
 
     void StepPage(int delta)
     {
@@ -1052,10 +1258,26 @@ public sealed class IslandWindow : Window
         next.View.Visibility = Visibility.Visible;
         IPage? prev = _pageId != null && _pages.TryGetValue(_pageId, out var pp) && _pageHost.Children.Contains(pp.View) ? pp : null;
         if (prev != null && _pageActive) prev.Hidden();
+        // Navegação rápida (Tab/setas): páginas que ainda estavam saindo não sobrevivem a esta troca. Antes cada
+        // troca deixava a anterior no palco até a mola assentar; em sequência, duas ou três apareciam sobrepostas.
+        foreach (var c in _pageHost.Children.OfType<FrameworkElement>().ToList())
+        {
+            if (c == next.View || (prev != null && c == prev.View)) continue;
+            MotionEngine.Stop(c, UIElement.OpacityProperty);       // o callback da saída tira a página do palco
+            if (_pageHost.Children.Contains(c)) { _pageHost.Children.Remove(c); Motion.Rest(c, 1, 0); }
+        }
+        if (_pageHost.Children.Contains(next.View))
+        {
+            // A página de destino ainda estava saindo (A → B → A): encerra a saída antes de reusá-la, senão ela
+            // seria adicionada duas vezes (exceção) e a saída antiga removeria a página que acabou de entrar.
+            MotionEngine.Stop(next.View, UIElement.OpacityProperty);
+            if (_pageHost.Children.Contains(next.View)) _pageHost.Children.Remove(next.View);
+            Motion.Rest(next.View, 1, 0);
+        }
         var order = _navBtns.Keys.ToList();
         _dir = prev != null && order.IndexOf(id) < order.IndexOf(_pageId ?? id) ? -1 : 1;
         _pageId = id;
-        _pageHost.Children.Add(next.View);
+        if (!_pageHost.Children.Contains(next.View)) _pageHost.Children.Add(next.View);
         // se esta página já estava ligada como "convidada" (um cartão dela mora na página anterior), não liga duas vezes
         if (_pageActive && !_guestOn.Remove(id)) next.Shown();
 
@@ -1085,6 +1307,7 @@ public sealed class IslandWindow : Window
     {
         MotionEngine.To(view, UIElement.OpacityProperty, 0, new SpringSpec(760, 52, 0.002), 0, () =>
         {
+            if (ReferenceEquals(CurrentPage()?.View, view)) return;      // voltou a ser a página atual: não tira
             if (_pageHost.Children.Contains(view)) _pageHost.Children.Remove(view);
             Motion.Rest(view, 1, 0);
         });
@@ -1234,8 +1457,8 @@ public sealed class IslandWindow : Window
         }
         Frame();
         _loop.Kick();
-        if (exp) _activity = DateTime.Now;
-        else _bannerT.Stop();
+        if (exp) { _activity = DateTime.Now; _wasHovered = CursorOnIsland(); _hereT.Start(); }
+        else { _bannerT.Stop(); _hereT.Stop(); }
         if (!anim) _phase = Phase.Settled;
     }
 
@@ -1297,7 +1520,7 @@ public sealed class IslandWindow : Window
             MotionEngine.To(_editBar, UIElement.OpacityProperty, 0, Tz.Springs.Exit, 0,
                 () => { if (!_edit) _editBar.Visibility = Visibility.Collapsed; });
         else { MotionEngine.Jump(_editBar, UIElement.OpacityProperty, 0); _editBar.Visibility = Visibility.Collapsed; }
-        if (_st == St.Expanded && !_island.IsMouseOver) ArmCollapse();
+        if (_st == St.Expanded && !CursorOnIsland()) ArmCollapse();
     }
 
     /// <summary>Seções cujos cartões estão na seção aberta precisam continuar "ligadas" (volume, brilho, relógio...).</summary>
@@ -1574,6 +1797,7 @@ public sealed class IslandWindow : Window
             _shadowBox.CornerRadius = new CornerRadius(Math.Round(rb));
         }
         UpdateRegion();
+        SyncShadowWindow();
     }
 
     // ---------------- Real backdrop blur capture ----------------
@@ -1588,9 +1812,12 @@ public sealed class IslandWindow : Window
         if (S.Look == IslandLook.SolidBlack || S.BlurAmount <= 0 || _hwnd == IntPtr.Zero || _capturing) return;
         _capturing = true;
         bool excluded = false;
+        IntPtr shadowHwnd = _shadowWin is { IsVisible: true } ? new WindowInteropHelper(_shadowWin).Handle : IntPtr.Zero;
         try
         {
             try { excluded = Native.SetWindowDisplayAffinity(_hwnd, 0x11); } catch { }
+            // O halo está em outra janela: sem excluí-la também, a sombra entraria na foto e ficaria no vidro.
+            if (shadowHwnd != IntPtr.Zero) { try { Native.SetWindowDisplayAffinity(shadowHwnd, 0x11); } catch { } }
             if (excluded) await Task.Delay(60);      // dá tempo ao DWM de aplicar a exclusão antes da cópia
             double dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
             if (!Native.GetWindowRect(_hwnd, out var rc)) return;
@@ -1621,6 +1848,7 @@ public sealed class IslandWindow : Window
         catch (Exception e) { Log.Write(e); }
         finally
         {
+            if (shadowHwnd != IntPtr.Zero) { try { Native.SetWindowDisplayAffinity(shadowHwnd, 0); } catch { } }
             if (excluded) { try { Native.SetWindowDisplayAffinity(_hwnd, 0); } catch { } }   // volta a aparecer em prints e gravações
             _capturing = false;
         }
@@ -1631,6 +1859,26 @@ public sealed class IslandWindow : Window
     {
         _activity = DateTime.Now;
         if (e.OriginalSource is DependencyObject d && FindParent<System.Windows.Controls.Primitives.TextBoxBase>(d) != null) EnableKeyboard();
+        else if (e.OriginalSource is DependencyObject o) DropTextFocus(o);
+    }
+
+    /// <summary>
+    /// Clicou fora de um campo de texto: o campo perde o foco de verdade (caret para de piscar, atalhos da ilha
+    /// voltam) e o clique segue para o botão/aba que estava embaixo. Antes o foco ficava preso no editor: clicar
+    /// em qualquer outro lugar da ilha não tirava o "modo de digitação" e as setas continuavam indo para a nota.
+    /// </summary>
+    void DropTextFocus(DependencyObject? clicked)
+    {
+        // Foco de teclado e foco lógico podem discordar (janela sem ativação): o campo pode ser o dono do texto
+        // sem ser o foco de teclado, e era por isso que o caret continuava piscando depois do clique fora.
+        var tb = TextBoxOf(Keyboard.FocusedElement) ?? TextBoxOf(FocusManager.GetFocusedElement(this));
+        if (tb == null) return;
+        // clicou dentro do próprio campo (ou no documento do editor): o foco fica onde está
+        if (clicked != null && (clicked == tb || TextBoxOf(clicked) == tb)) return;
+        // Sai dos dois focos: o RichTextBox só encerra o caret e devolve as setas quando nenhum deles aponta para ele.
+        FocusManager.SetFocusedElement(this, this);
+        if (tb.IsKeyboardFocusWithin) Keyboard.ClearFocus();
+        if (clicked != null) Focus();      // o clique continua na ilha; ao desativar a janela, não reativa
     }
 
     static T? FindParent<T>(DependencyObject d) where T : DependencyObject
@@ -1656,6 +1904,7 @@ public sealed class IslandWindow : Window
     protected override void OnDeactivated(EventArgs e)
     {
         base.OnDeactivated(e);
+        DropTextFocus(null);                // clicar em outro app também encerra a digitação (caret e setas)
         int ex = Native.GetWindowLong(_hwnd, Native.GWL_EXSTYLE);
         Native.SetWindowLong(_hwnd, Native.GWL_EXSTYLE, ex | Native.WS_EX_NOACTIVATE);
         if (_st == St.Expanded) ArmCollapse();
@@ -1763,28 +2012,69 @@ public sealed class IslandWindow : Window
     void ArmCollapse()
     {
         _collapseT.Stop();
-        if (S.CollapseDelayMs <= 0 && !KeepOpen && !_island.IsMouseOver) { Collapse(); return; }
+        if (S.CollapseDelayMs <= 0 && !KeepOpen && !CursorOnIsland()) { Collapse(); return; }
         _collapseT.Interval = TimeSpan.FromMilliseconds(Math.Max(30, S.CollapseDelayMs));
         _collapseT.Start();
     }
 
-    bool KeepOpen => _edit || CurrentPage()?.KeepOpen == true || IsKeyboardFocusWithin && Keyboard.FocusedElement is System.Windows.Controls.Primitives.TextBoxBase
+    /// <summary>
+    /// O ponteiro está sobre a ilha AGORA? Lido do cursor (GetCursorPos) e da mesma silhueta da região, em vez de
+    /// confiar no estado de mouse do WPF: depois que a região passou a recortar só a pílula, o MouseLeave pode não
+    /// ser entregue e o WPF ficava com IsMouseOver preso em true — a ilha abria e não se recolhia mais.
+    /// </summary>
+    bool CursorOnIsland()
+    {
+        if (!IsVisible) return false;
+        if (!Native.GetCursorPos(out var pt)) return _island.IsMouseOver;
+        var p = PointFromScreen(new Point(pt.X, pt.Y));
+        double w = Math.Max(1, _w.Value), h = Math.Max(1, _h.Value), left = (Width - w) / 2, top = _island.Margin.Top;
+        double rb = Math.Clamp(_r.Value, 0, Math.Min(w, h) / 2);
+        return Floating
+            ? InsideSilhouette(p.X - left, p.Y - top, w, h, rb)
+            : InsideNotch(p.X - left, p.Y - top, w, h, Math.Min(11, Math.Max(0, h * 0.3)), rb);
+    }
+
+    /// <summary>
+    /// Vigia do recolhimento: roda a cada 200 ms ENQUANTO a ilha está aberta e olha o cursor de verdade. Assim o
+    /// "mouse saiu" não depende de MouseLeave nem de MouseEnter: com a janela recortada na silhueta esses eventos
+    /// podem não chegar (ou chegar fora de ordem e cancelar o recolhimento já armado).
+    /// </summary>
+    void WatchCursor()
+    {
+        if (_st != St.Expanded) { _hereT.Stop(); return; }
+        if (CursorOnIsland()) { _wasHovered = true; return; }
+        // "Em uso" (digitação, arrasto, menu) não arma nada: este vigia rearma sozinho quando o motivo acaba.
+        if (_wasHovered && !KeepOpen && !_collapseT.IsEnabled) ArmCollapse();
+    }
+
+    /// <summary>
+    /// Digitação em curso num campo de texto DESTA janela. O foco global não serve: o campo de outra janela
+    /// (Configurações) deixaria a ilha presa aberta. E o foco de teclado da janela inteira também não serve: com
+    /// WS_EX_NOACTIVATE o botão clicado fica com o foco para sempre e a ilha nunca se recolhia.
+    /// </summary>
+    bool TypingInIsland()
+    {
+        var tb = TextBoxOf(Keyboard.FocusedElement) ?? TextBoxOf(FocusManager.GetFocusedElement(this));
+        return tb != null && FindParent<Window>(tb) == this;
+    }
+
+    /// <summary>
+    /// "Ainda estou em uso": campo de texto focado, modo de edição do layout, cartão na mão, menu aberto ou
+    /// captura de mouse (arrastar o volume na página de ambiente).
+    /// </summary>
+    bool KeepOpen => _edit || CurrentPage()?.KeepOpen == true || TypingInIsland() || _held != null
                      || _island.ContextMenu?.IsOpen == true || Mouse.Captured != null;
 
     void OnCollapseTick(object? s, EventArgs e)
     {
         _collapseT.Stop();
         if (_st != St.Expanded) return;
-        if (KeepOpen) { ArmCollapse(); return; }
-        if (_island.IsMouseOver)
-        {
-            // mouse parado em cima: só recolhe por inatividade, se isso estiver ligado
-            double lim = S.IdleCollapseSeconds;
-            if (lim > 0 && (DateTime.Now - _activity).TotalSeconds >= lim) { Collapse(); return; }
-            _collapseT.Interval = TimeSpan.FromSeconds(1); _collapseT.Start();
-            return;
-        }
-        Collapse();
+        if (KeepOpen) return;                  // o vigia do cursor rearma quando o uso terminar
+        if (!CursorOnIsland()) { Collapse(); return; }
+        // mouse parado em cima: só recolhe por inatividade, se isso estiver ligado
+        double lim = S.IdleCollapseSeconds;
+        if (lim > 0 && (DateTime.Now - _activity).TotalSeconds >= lim) { Collapse(); return; }
+        _collapseT.Interval = TimeSpan.FromSeconds(1); _collapseT.Start();
     }
 
     // ---------------- Banner alert ----------------
@@ -2118,6 +2408,8 @@ public sealed class IslandWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         if (_hwnd != IntPtr.Zero) { Native.UnregisterHotKey(_hwnd, 1); Native.UnregisterHotKey(_hwnd, 2); try { Native.RemoveClipboardFormatListener(_hwnd); } catch { } }
+        try { _shadowWin?.Close(); } catch { }
+        _shadowWin = null;
         base.OnClosed(e);
     }
 }
