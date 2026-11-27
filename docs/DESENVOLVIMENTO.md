@@ -25,7 +25,7 @@ enquanto algo se move (consumo ocioso ≈ 0). Botões têm "squish" ao clicar e 
 Para desligar tudo: Configurações > Aparência > Animações.
 
 ## Ambientação e fontes
-- Fonte Inter embutida (`Fonts/`, licença OFL em `Fonts/LICENSE-Inter.txt`).
+- Fonte Manrope embutida (`Fonts/Manrope.ttf`, variável, licença OFL em `Fonts/LICENSE-Manrope.txt`).
 - Sons da Ambientação sintetizados em tempo real; para trocar por gravações, coloque `rain.mp3`, `forest.mp3`, `cafe.mp3`, `office.mp3`, `lofi.mp3`, `fire.mp3`, `stream.mp3` ou `waves.mp3` na pasta `Sounds\` ao lado do executável.
 
 ## Linha de comando (scripts e hooks)

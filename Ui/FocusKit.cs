@@ -44,7 +44,7 @@ public static class FK
         return sp;
     }
 
-    /// <summary>Texto numérico/legenda em Inter Medium com algarismos tabulares (nome mantido por compatibilidade).</summary>
+    /// <summary>Texto numérico/legenda em Manrope com algarismos tabulares (nome mantido por compatibilidade).</summary>
     public static TextBlock Mono(string text, double size, Brush? fg = null, bool bold = true)
     {
         var t = K.T(text, size, fg ?? K.Fg, bold);

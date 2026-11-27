@@ -10,7 +10,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>TzIsland</AssemblyName>
     <RootNamespace>TzIsland</RootNamespace>
-    <Version>3.1.1</Version>
+    <Version>3.1.2</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\TzIsland.ico</ApplicationIcon>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -38,6 +38,9 @@
     <!-- Regras do Taskless (.taskless/) guardam fixtures em C#: são casos de teste, não código do app. -->
     <Compile Remove=".taskless\**" />
     <None Remove=".taskless\**" />
+    <!-- Fontes antigas (Inter) e o TTF variável entram só pelo <Resource> acima: senão viram conteúdo solto do app. -->
+    <Content Remove="Fonts\**" />
+    <None Remove="Fonts\**" />
   </ItemGroup>
 
   <ItemGroup>
@@ -47,10 +50,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Inter (OFL): fonte moderna embutida, não depende de nada instalado no Windows -->
+    <!-- Manrope (OFL): fonte moderna embutida, não depende de nada instalado no Windows -->
     <Resource Include="Fonts\*.ttf" />
     <Resource Include="Assets\TzIsland.ico" />
-    <None Include="Fonts\LICENSE-Inter.txt" />
+    <None Include="Fonts\LICENSE-Manrope.txt" />
   </ItemGroup>
 
   <ItemGroup>

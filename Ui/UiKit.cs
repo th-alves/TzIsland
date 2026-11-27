@@ -9,11 +9,12 @@ public static class K
 {
     public static readonly FontFamily Icons = new("Segoe Fluent Icons, Segoe MDL2 Assets");
 
-    // Inter embutida (pasta Fonts/). Se por algum motivo não carregar, cai para a fonte do Windows.
+    // Manrope embutida (pasta Fonts/, variável 200–800: um arquivo cobre Regular, Medium e SemiBold).
+    // Se por algum motivo não carregar, cai para a fonte do Windows.
     static readonly Uri FontBase = new("pack://application:,,,/");
-    public static readonly FontFamily Font = new(FontBase, "./Fonts/#Inter, Segoe UI Variable Text, Segoe UI");
-    public static readonly FontFamily FontMedium = new(FontBase, "./Fonts/#Inter Medium, Segoe UI Variable Text, Segoe UI");
-    public static readonly FontFamily FontSemi = new(FontBase, "./Fonts/#Inter SemiBold, Segoe UI Variable Display, Segoe UI");
+    public static readonly FontFamily Font = new(FontBase, "./Fonts/#Manrope, Segoe UI Variable Text, Segoe UI");
+    public static readonly FontFamily FontMedium = new(FontBase, "./Fonts/#Manrope, Segoe UI Variable Text, Segoe UI");
+    public static readonly FontFamily FontSemi = new(FontBase, "./Fonts/#Manrope, Segoe UI Variable Display, Segoe UI");
     public static readonly FontFamily DisplayFont = FontSemi;
     public static readonly FontFamily Mono = new("Cascadia Mono, Consolas, Courier New");
 
@@ -151,7 +152,7 @@ public static class K
         FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal, TextTrimming = TextTrimming.CharacterEllipsis
     };
 
-    /// <summary>Números grandes (timers, relógio): Inter SemiBold com algarismos tabulares, que não "pulam" ao mudar.</summary>
+    /// <summary>Números grandes (timers, relógio): Manrope SemiBold com algarismos tabulares, que não "pulam" ao mudar.</summary>
     public static TextBlock Num(string text, double size, Brush? fg = null)
     {
         var t = T(text, size, fg ?? Fg, true);
