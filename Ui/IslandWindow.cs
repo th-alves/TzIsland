@@ -123,6 +123,11 @@ public sealed class IslandWindow : Window
     Live _live = Live.None, _liveShown = Live.None; bool _liveVideo, _liveBreak; LiveKind _liveKind;
     readonly Grid _ledHost = new() { Width = 26, Height = 26, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0), IsHitTestVisible = false };
     bool? _ledOn;
+    // Horário do computador na ilha recolhida, centralizado: fica no palco do mini, por cima do LED e da faixa ao vivo
+    // (que se afastam para as bordas), e não tem a ver com a página Início (que continua com o relógio dela).
+    readonly TextBlock _miniClock = K.Num("", 12.5, Brushes.White);
+    string _miniClockText = "";
+
     bool _ledPulsing;
 
     // Download ao vivo: linha fina no fundo da pílula (indeterminada, pois o navegador não informa o tamanho final)
@@ -350,8 +355,14 @@ public sealed class IslandWindow : Window
         _ledHost.Children.Add(_ledIdle); _ledHost.Children.Add(_ledActive);
         _mini.Children.Add(_ledHost);
         _tText.VerticalAlignment = VerticalAlignment.Center; _tExtra.VerticalAlignment = VerticalAlignment.Center; _tExtra.Margin = new Thickness(4, 1, 0, 0);
+        // O horário segue a tipografia do app (Inter SemiBold, algarismos tabulares), não a fonte padrão do Windows.
+        _miniClock.HorizontalAlignment = HorizontalAlignment.Center; _miniClock.VerticalAlignment = VerticalAlignment.Center;
+        _miniClock.IsHitTestVisible = false; _miniClock.Margin = new Thickness(0, -0.5, 0, 0);
         _miniLive.Children.Add(_liveL); _miniLive.Children.Add(_liveR);
         _mini.Children.Add(_miniLive);
+        // Fica no palco do mini (irmão do LED e da faixa), e não dentro de um deles: assim o horário é centralizado na pílula
+        // e nunca herda a opacidade/visibilidade animada de outro elemento.
+        _mini.Children.Add(_miniClock);
         _mini.RenderTransform = _miniShift;
         // barra de download
         _dlFill.RenderTransform = _dlShift;
@@ -1117,7 +1128,9 @@ public sealed class IslandWindow : Window
     }
 
     // ---------------- State transitions ----------------
-    double CollapsedWidthNow => S.CollapsedWidth + _live switch { Live.Both => 84, Live.Agenda => 110, Live.Download => 62, _ => 0 };
+    // Com atividade ao vivo o horário fica no centro: a pílula ganha a largura do relógio mais a folga dos dois lados.
+    double CollapsedWidthNow => S.CollapsedWidth + _live switch { Live.Both => 84, Live.Agenda => 110, Live.Download => 62, _ => 0 }
+                               + (_live == Live.None ? 0 : 60);
 
     (double w, double h, double r) Target(St s) => s switch
     {
@@ -1803,8 +1816,17 @@ public sealed class IslandWindow : Window
     public void RefreshMini()
     {
         // Os eventos de mídia chegam de tarefas assíncronas sem "await": uma exceção aqui sumiria sem deixar rastro. Por isso o log.
-        try { SetLed(IsActive()); UpdateLive(); }
+        try { SetLed(IsActive()); UpdateLive(); UpdateClock(); }
         catch (Exception e) { Log.Write(e); }
+    }
+
+    /// <summary>Horário atual (hora e minuto) no centro da pílula. Só troca o texto quando o minuto vira.</summary>
+    void UpdateClock()
+    {
+        string t = DateTime.Now.ToString("HH:mm");
+        if (t == _miniClockText) return;
+        _miniClockText = t;
+        _miniClock.Text = t;
     }
 
     static bool MediaPlaying() => S.IsOn("media") && Svc.Media.HasSession && Svc.Media.Playing && (Svc.Media.Title.Length > 0 || Svc.Media.App.Length > 0);
@@ -1961,6 +1983,9 @@ public sealed class IslandWindow : Window
     {
         _liveL.Children.Clear(); _liveR.Children.Clear();
         bool both = m == Live.Both;
+        // O horário ocupa o centro: a faixa ao vivo encosta nas bordas para não passar por baixo dos números.
+        _liveL.Margin = m == Live.None ? new Thickness(18, 0, 0, 0) : new Thickness(10, 0, 0, 0);
+        _liveR.Margin = m == Live.None ? new Thickness(0, 0, 18, 0) : new Thickness(0, 0, 10, 0);
         _tText.Margin = new Thickness(both || m == Live.Timer ? 7 : 0, 0, 0, 0);
         _miniEq.Margin = new Thickness(both ? 8 : 0, 0, 0, 0);
         if (m == Live.Media) { _liveL.Children.Add(_mIcon); _liveR.Children.Add(_miniEq); }
