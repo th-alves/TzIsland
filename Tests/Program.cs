@@ -98,6 +98,11 @@ static class Program
         Check("retângulos válidos", wide.All(r => r.Width > 0 && r.Height > 0));
         var none = TzIsland.HitRegion.Rectangles(0, 0, 0, 0, 5);
         Check("tamanho zero não gera retângulo", none.Count == 0);
+        // Folga de 1 px: a região corta pixels inteiros e precisa incluir o degradê antialiasado da borda.
+        var grown = TzIsland.HitRegion.Grow(rects, 1);
+        Check("folga cresce 1 px por lado", grown[0].X == rects[0].X - 1 && grown[0].Y == rects[0].Y - 1
+            && grown[0].Width == rects[0].Width + 2 && grown[0].Height == rects[0].Height + 2);
+        Check("folga zero mantém a região", ReferenceEquals(TzIsland.HitRegion.Grow(rects, 0), rects));
         // Silhueta de notch (Clássico): o corpo recua os ombros, então as abas do navegador ao lado da ilha
         // voltam a receber o clique.
         var notch = TzIsland.HitRegion.Notch(0, 0, 200, 36, 11, 20);

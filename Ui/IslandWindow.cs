@@ -767,6 +767,8 @@ public sealed class IslandWindow : Window
     /// <summary>
     /// Região da janela para o mouse. A silhueta é composta de retângulos (corpo + degraus dos cantos), juntados
     /// numa única região com CombineRgn: um retângulo cheio deixava os cantos da ilha capturando cliques de fora.
+    /// A região leva 2 px de folga: o SetWindowRgn corta em pixels inteiros e, sem ela, comia a borda
+    /// antialiasada desenhada pelo WPF (os cantos apareciam em degraus).
     /// </summary>
     IntPtr BuildHitRgn(double dpi, double w, double h, double left, double top)
     {
@@ -787,6 +789,11 @@ public sealed class IslandWindow : Window
             double bottom = Math.Clamp(_r.Value, 0, Math.Max(0, Math.Min((w - 2 * ear) / 2, h - ear)));
             rects = HitRegion.Notch(x, y, pw, ph, (int)Math.Round(ear * dpi), (int)Math.Round(bottom * dpi));
         }
+
+        // 2 px: 1 cobre o degradê antialiasado (que ocupa 1 px) e o outro absorve o meio-pixel de erro do
+        // arredondamento da origem — com DPI ≠ 100% a ilha cai no meio do pixel. Medido: com 1 px ainda
+        // escapavam pixels desenhados (alfa até 219 no Clássico a 200%); com 2 px, nenhum.
+        rects = HitRegion.Grow(rects, 2);
 
         IntPtr region = Native.CreateRectRgn(0, 0, 0, 0);            // região vazia (vira dona da memória do sistema)
         foreach (var rc in rects)

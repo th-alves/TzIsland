@@ -231,3 +231,9 @@ Todos os itens abaixo precisam ser testados por você no primeiro `dotnet run`; 
 - ✅ **Foco do editor:** clicar fora do campo de texto solta o foco de verdade (o caret para e as setas voltam para a ilha).
 - ⚠️ **Verificado:** `dotnet build` 0 erros, 56/56 testes (10 novos da região de cliques). O recolhimento com mouse real **não foi confirmado nesta versão**; Clássico e DPI diferente de 100% também não foram inspecionados.
 
+## Etapa 28 — Borda da ilha lisa nos dois modos e em DPI ≠ 100% (v3.2.2)
+- ✅ **Causa:** o serrilhado não vinha do desenho e sim do `SetWindowRgn`, que recorta em pixels inteiros e cortava o degradê antialiasado da borda; a região ganhou folga (`HitRegion.Grow`) para devolver esses pixels (invisíveis, transparentes na forma).
+- ✅ **Folga de 2 px, não 1:** medido renderizando a silhueta como o app desenha (clip arredondado e notch) e comparando pixel a pixel o alfa desenhado com o que a região deixa passar, em 100 casos. Com **1 px** sobravam pixels cortados em DPI ≠ 100% (até **21 px, alfa 219** no Clássico 320×36 a 200%), porque `left*dpi` cai no meio do pixel e a origem da região é arredondada; com **2 px** o corte é **zero** em todos os casos (100/125/150/175/200%, deslocamentos fracionários de 0 a 0,75 px, Flutuante 420×44 e 760×300, Clássico 420×44 e 320×36).
+- ✅ **Clássico no topo da tela:** a folga faz a região começar em `y = -2`; testado numa janela real que o `SetWindowRgn` aceita a região negativa e o sistema mantém a coordenada — nada a recortar.
+- ⚠️ **Verificado:** `dotnet build` 0 erros, **58/58** testes (2 novos: a folga cresce 1 px por lado e folga zero mantém a região). **Não inspecionado na tela** nesta rodada: a suavidade foi conferida por medição de alfa, não a olho; mouse real nos dois modos e em DPI ≠ 100% fica com quem usar.
+
