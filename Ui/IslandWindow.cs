@@ -142,7 +142,7 @@ public sealed class IslandWindow : Window
     string _agendaKey = ""; bool _agendaSoon;
 
     // HUD de gestos (volume / play / faixa) dentro da pílula recolhida
-    readonly Grid _hud = new() { Opacity = 0, IsHitTestVisible = false, Background = new SolidColorBrush(Color.FromArgb(244, 0, 0, 0)) };
+    readonly Grid _hud = new() { Opacity = 0, IsHitTestVisible = false, Background = new SolidColorBrush(Color.FromArgb(244, 15, 15, 17)) };
     readonly Grid _hudBar = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
     readonly TextBlock _hudLabel = K.T("", 12, Brushes.White, true);
     readonly Border _dIcon = new() { VerticalAlignment = VerticalAlignment.Center };
@@ -218,7 +218,7 @@ public sealed class IslandWindow : Window
     readonly Border _editBar = new()
     {
         Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top,
-        Margin = new Thickness(0, 7, 0, 0), Background = K.Hex("#F2141416"), BorderBrush = K.StrokeHi, BorderThickness = new Thickness(1),
+        Margin = new Thickness(0, 7, 0, 0), Background = K.Hex("#F20F0F11"), BorderBrush = K.StrokeHi, BorderThickness = new Thickness(1),
         CornerRadius = new CornerRadius(17), Padding = new Thickness(16, 3, 3, 3)
     };
     readonly DispatcherTimer _dwellT = new() { Interval = TimeSpan.FromMilliseconds(420) }, _scrollT = new() { Interval = TimeSpan.FromMilliseconds(16) };
@@ -358,6 +358,12 @@ public sealed class IslandWindow : Window
         // O horário segue a tipografia do app (Inter SemiBold, algarismos tabulares), não a fonte padrão do Windows.
         _miniClock.HorizontalAlignment = HorizontalAlignment.Center; _miniClock.VerticalAlignment = VerticalAlignment.Center;
         _miniClock.IsHitTestVisible = false; _miniClock.Margin = new Thickness(0, -0.5, 0, 0);
+        // Texto nítido: a janela NÃO usa AllowsTransparency (a silhueta é recortada por SetWindowRgn), então o Windows
+        // pode usar ClearType de verdade. O modo Ideal mantém as formas exatas das letras (o Display encaixa cada letra
+        // na grade de pixels e deixa a Manrope "torta"); ClearType + Hinting Fixed reduzem a suavidade cinza.
+        TextOptions.SetTextFormattingMode(this, TextFormattingMode.Ideal);
+        TextOptions.SetTextRenderingMode(this, TextRenderingMode.ClearType);
+        TextOptions.SetTextHintingMode(this, TextHintingMode.Fixed);
         _miniLive.Children.Add(_liveL); _miniLive.Children.Add(_liveR);
         _mini.Children.Add(_miniLive);
         // Fica no palco do mini (irmão do LED e da faixa), e não dentro de um deles: assim o horário é centralizado na pílula
@@ -617,7 +623,7 @@ public sealed class IslandWindow : Window
     {
         Visibility = Visibility.Collapsed, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom,
         Margin = new Thickness(0, 0, 12, 8), Padding = new Thickness(6, 2, 6, 2), CornerRadius = new CornerRadius(7),
-        Background = K.Hex("#E6000000"), IsHitTestVisible = false
+        Background = K.Hex("#E60F0F11"), IsHitTestVisible = false
     };
     bool _statsOn;
 
@@ -890,7 +896,7 @@ public sealed class IslandWindow : Window
         switch (S.Look)
         {
             case IslandLook.SolidBlack:
-                _tint.Fill = new SolidColorBrush(Color.FromRgb(0, 0, 0));
+                _tint.Fill = new SolidColorBrush(K.BgColor);
                 _sheen.Visibility = Visibility.Collapsed;
                 break;
             case IslandLook.DarkGlass:
@@ -1551,7 +1557,7 @@ public sealed class IslandWindow : Window
             if (_navScale.TryGetValue(kv.Key, out var sc)) sc.ScaleX = sc.ScaleY = 1 + 0.09 * near;
         }
         double mw = Math.Max(1, Math.Min(w, CollapsedWidthNow) - 2 * MiniEar);
-        if (Math.Abs(_mini.Width - mw) > 0.2) _mini.Width = mw;   // só quando muda de verdade: menos layout por quadro
+        if (Math.Abs(_mini.Width - Math.Round(mw)) > 0.2) _mini.Width = Math.Round(mw);   // só quando muda de verdade: menos layout por quadro
         // A fase visual vira "assentada" quando todas as molas param (é o que os gestos leem).
         if (_phase != Phase.Settled && _w.Settled && _h.Settled && _r.Settled
             && _miniO.Settled && _bannerO.Settled && _expO.Settled && _expS.Settled && _expY.Settled)
@@ -1562,10 +1568,10 @@ public sealed class IslandWindow : Window
             // Só no modo Flutuante: no Clássico a silhueta tem ombros côncavos e um halo retangular
             // deixaria preto nos "ears" (a ilha é colada na borda da tela — sombra ali não faz sentido).
             _shadowBox.Opacity = Floating ? (S.Look == IslandLook.SolidBlack ? 0.62 : 0.42) : 0;
-            Canvas.SetLeft(_shadowBox, (Width - w) / 2);
-            Canvas.SetTop(_shadowBox, _island.Margin.Top);
-            _shadowBox.Width = w; _shadowBox.Height = h;
-            _shadowBox.CornerRadius = new CornerRadius(rb);
+            Canvas.SetLeft(_shadowBox, Math.Round((Width - w) / 2));      // pixel inteiro: meio pixel borra a sombra e encosta nos textos
+            Canvas.SetTop(_shadowBox, Math.Round(_island.Margin.Top));
+            _shadowBox.Width = Math.Round(w); _shadowBox.Height = Math.Round(h);
+            _shadowBox.CornerRadius = new CornerRadius(Math.Round(rb));
         }
         UpdateRegion();
     }

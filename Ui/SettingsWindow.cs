@@ -33,6 +33,10 @@ public sealed class SettingsWindow : Window
         Foreground = K.Fg;
         FontFamily = K.Font;
         UseLayoutRounding = true;
+        // Mesma nitidez de texto da ilha: a janela é opaca, então o Windows usa ClearType de verdade.
+        TextOptions.SetTextFormattingMode(this, TextFormattingMode.Ideal);
+        TextOptions.SetTextRenderingMode(this, TextRenderingMode.ClearType);
+        TextOptions.SetTextHintingMode(this, TextHintingMode.Fixed);
         SourceInitialized += (_, _) =>
         {
             try { int on = 1; Native.DwmSetWindowAttribute(new WindowInteropHelper(this).Handle, 20, ref on, 4); } catch { }   // barra de título escura

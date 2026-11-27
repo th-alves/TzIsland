@@ -26,7 +26,9 @@ public static class K
     }
 
     // ---- Paleta "Cupertino Dark": cinzas neutros da Apple, hierarquia por tom e traço em branco translúcido.
-    public static readonly Brush Fg = Mk("#FFF5F5F7"), Dim = Mk("#FFB4B4BA"), Faint = Mk("#FF8E8E93"),
+    // Branco puro sobre preto puro "irradia" (o texto parece mais fino e qualquer degrau de pixel aparece):
+    // o texto é um branco levemente suavizado sobre um fundo cinza muito escuro, como nos apps nativos.
+    public static readonly Brush Fg = Mk("#FFF2F2F5"), Dim = Mk("#FFB4B4BA"), Faint = Mk("#FF8E8E93"),
         Card = Mk("#FF141417"), CardStrong = Mk("#FF232327"), Green = Mk("#FF30D158"),
         Red = Mk("#FFFF453A"), Orange = Mk("#FFFF9F0A"), Clear = Brushes.Transparent,
         Cyan = Mk("#FF64D2FF"), Purple = Mk("#FFBF5AF2"), Neon = Mk("#FF00D4AA");
@@ -39,12 +41,15 @@ public static class K
         CardStroke = Mk("#FFECECEC"), CardStrokeHi = Mk("#FFFFFFFF"),
         Accent = Mk("#FF0A84FF"), Label = Mk("#FF9A9AA0"), Muted = Mk("#FF6E6E73"),
         Track = Mk("#FF26262A"), Raised = Mk("#FF1F1F23"), Knob = Mk("#FF5A5A60"),
-        White = Mk("#FFFFFFFF"), Ink = Mk("#FF0A0A0B"), Bg = Mk("#FF000000");
+        White = Mk("#FFFFFFFF"), Ink = Mk("#FF0A0A0B"), Bg = Mk("#FF0F0F11");
+
+    /// <summary>Fundo da ilha no visual Solid Black: cinza bem escuro (nunca #000000, que gera serrilhado óptico no texto).</summary>
+    public static readonly Color BgColor = Color.FromRgb(0x0F, 0x0F, 0x11);
 
     /// <summary>Superfície de cartão: gradiente quase imperceptível de cima para baixo (todo material pega luz).</summary>
     static Brush Elevation()
     {
-        var g = new LinearGradientBrush(Color.FromRgb(0x19, 0x19, 0x1D), Color.FromRgb(0x0E, 0x0E, 0x10), 90);
+        var g = new LinearGradientBrush(Color.FromRgb(0x1A, 0x1A, 0x1D), Color.FromRgb(0x14, 0x14, 0x16), 90);
         g.Freeze();
         return g;
     }
@@ -148,8 +153,10 @@ public static class K
     public static TextBlock T(string text, double size = 12, Brush? fg = null, bool bold = false) => new()
     {
         Text = text, FontSize = size, Foreground = fg ?? Fg,
+        // Manrope é geométrica: no peso Regular o texto pequeno sai serrilhado em escala de cinza no Windows.
+        // Por isso o texto comum vai em Medium; títulos e números em SemiBold.
         FontFamily = bold ? FontSemi : (size >= 20 ? FontMedium : Font),
-        FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal, TextTrimming = TextTrimming.CharacterEllipsis
+        FontWeight = bold ? FontWeights.SemiBold : (size >= 20 ? FontWeights.Normal : FontWeights.Medium), TextTrimming = TextTrimming.CharacterEllipsis
     };
 
     /// <summary>Números grandes (timers, relógio): Manrope SemiBold com algarismos tabulares, que não "pulam" ao mudar.</summary>
