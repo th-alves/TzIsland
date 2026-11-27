@@ -225,3 +225,9 @@ Todos os itens abaixo precisam ser testados por você no primeiro `dotnet run`; 
 - ✅ **Convenção de commits documentada:** `docs/CONVENCAO-DE-COMMITS.md`, montada a partir do histórico real (tipos, escopos, formato, anti-padrões, checklist).
 - ⚠️ **Verificado:** `dotnet build` 0 erros, 46/46 testes. Prints em `shots/relogio/` e `shots/nitidez/`. O modo Clássico, multi-monitor e DPI diferente de 100% **não foram inspecionados** nesta rodada.
 
+## Etapa 27 — Cliques na silhueta e recolhimento confiável (v3.2.1)
+- ✅ **Cliques ao redor da ilha:** a região que recorta a janela seguia a caixa cheia (pílula + 24 px do halo da sombra), então essa faixa invisível engolia cliques em abas e botões dos apps de baixo. A região agora é a **silhueta exata** (`HitRegion`, em `Core/Motion.cs`: degraus de 1 px nos cantos redondos, ombros côncavos no Clássico) e o halo foi para uma **janela própria click-through** (`WS_EX_TRANSPARENT`), fora da região da ilha.
+- ✅ **Recolher ao tirar o mouse:** o recolhimento dependia de `MouseLeave`/`IsMouseOver`, que a região recortada deixa de entregar (o ponteiro segue dentro do retângulo da janela). Agora um vigia de 200 ms lê o cursor de verdade (`GetCursorPos`) e compara com a mesma silhueta; `KeepOpen` só considera campo de texto **desta** janela, porque com `WS_EX_NOACTIVATE` o botão clicado mantém o foco de teclado para sempre — era o que prendia a ilha aberta depois de abrir por clique.
+- ✅ **Foco do editor:** clicar fora do campo de texto solta o foco de verdade (o caret para e as setas voltam para a ilha).
+- ⚠️ **Verificado:** `dotnet build` 0 erros, 56/56 testes (10 novos da região de cliques). O recolhimento com mouse real **não foi confirmado nesta versão**; Clássico e DPI diferente de 100% também não foram inspecionados.
+
